@@ -19,10 +19,7 @@ use tracing::{debug, error};
 use url::Url;
 
 use domain::{
-    base::iana::SecurityAlgorithm,
-    crypto::{common::rsa_encode, sign::SignError},
-    rdata::Dnskey,
-    utils::base16,
+    base::iana::SecurityAlgorithm, crypto::common::rsa_encode, rdata::Dnskey, utils::base16,
 };
 
 pub use kmip::client::{ClientCertificate, ConnectionSettings};
@@ -832,10 +829,10 @@ pub mod sign {
             queue: &mut SignQueue,
         ) -> Result<Vec<Signature>, SignError> {
             // Execute the request and capture the response.
-            let client = self
-                .conn_pool
-                .get()
-                .map_err(|err| format!("Error while obtaining KMIP pool connection: {err}"))?;
+            let client = self.conn_pool.get().map_err(|err| {
+                error!("Error while obtaining KMIP pool connection: {err}");
+                SignError
+            })?;
 
             // Drain the queue.
             let q_size = queue.0.capacity();
@@ -846,13 +843,17 @@ pub mod sign {
             // This will block which could be problematic if executed from an
             // async task handler thread as it will block execution of other
             // tasks while waiting for the remote KMIP server to respond.
-            let res = client
-                .do_requests(queue)
-                .map_err(|err| format!("Error while sending KMIP request: {err}"))?;
+            let res = client.do_requests(queue).map_err(|err| {
+                error!("Error while sending KMIP request: {err}");
+                SignError
+            })?;
 
             let mut sigs = Vec::with_capacity(q_size);
             for res in res {
-                let res = res?;
+                let res = res.map_err(|err| {
+                    error!("{err}");
+                    SignError
+                })?;
                 let sig = self.sign_post(res.payload.unwrap())?;
                 sigs.push(sig);
             }
@@ -901,7 +902,8 @@ pub mod sign {
                     DigestType::Sha256,
                 ),
                 alg => {
-                    return Err(format!("Algorithm not supported for KMIP signing: {alg}").into());
+                    error!("Algorithm not supported for KMIP signing: {alg}");
+                    return Err(SignError);
                 }
             };
             let mut cryptographic_parameters = CryptographicParameters::default()
@@ -961,7 +963,8 @@ pub mod sign {
                             })
                         })
                         .map_err(|err| {
-                            format!("Unable to parse DER encoded PKCS#1 RSAPublicKey: {err}")
+                            error!("Unable to parse DER encoded PKCS#1 RSAPublicKey: {err}");
+                            SignError
                         })?;
                     let (mut r, mut s) = (r.as_slice(), s.as_slice());
 
@@ -995,10 +998,13 @@ pub mod sign {
                 //(SecurityAlgorithm::ECDSAP384SHA384, 96) => {},
                 //(SecurityAlgorithm::ED25519, 64) => {},
                 //(SecurityAlgorithm::ED448, 114) => {},
-                (alg, sig_len) => Err(format!(
-                    "KMIP signature algorithm not supported or signature length incorrect: {sig_len} byte {alg} signature (0x{})",
-                    base16::encode_display(&signed.signature_data)
-                ))?,
+                (alg, sig_len) => {
+                    error!(
+                        "KMIP signature algorithm not supported or signature length incorrect: {sig_len} byte {alg} signature (0x{})",
+                        base16::encode_display(&signed.signature_data)
+                    );
+                    Err(SignError)
+                }
             }
         }
     }
@@ -1021,10 +1027,6 @@ pub mod sign {
             self.algorithm
         }
 
-        fn flags(&self) -> u16 {
-            self.flags
-        }
-
         fn dnskey(&self) -> Dnskey<Vec<u8>> {
             self.dnskey.clone()
         }
@@ -1033,17 +1035,18 @@ pub mod sign {
             let request = self.sign_pre(data)?;
 
             // Execute the request and capture the response.
-            let client = self
-                .conn_pool
-                .get()
-                .map_err(|err| format!("Error while obtaining KMIP pool connection: {err}"))?;
+            let client = self.conn_pool.get().map_err(|err| {
+                error!("Error while obtaining KMIP pool connection: {err}");
+                SignError
+            })?;
 
             // This will block which could be problematic if executed from an
             // async task handler thread as it will block execution of other
             // tasks while waiting for the remote KMIP server to respond.
-            let res = client
-                .do_request(request)
-                .map_err(|err| format!("Error while sending KMIP request: {err}"))?;
+            let res = client.do_request(request).map_err(|err| {
+                error!("Error while sending KMIP request: {err}");
+                SignError
+            })?;
 
             self.sign_post(res)
         }
@@ -1339,14 +1342,6 @@ pub mod sign {
 }
 
 //============ Error Types ===================================================
-
-//--- Conversion
-
-impl From<kmip::client::Error> for SignError {
-    fn from(err: kmip::client::Error) -> Self {
-        err.to_string().into()
-    }
-}
 
 //----------- GenerateError --------------------------------------------------
 
