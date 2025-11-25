@@ -7,7 +7,7 @@ use std::{
     vec::Vec,
 };
 
-use bcder::{BitString, ConstOid, Oid, decode::SliceSource};
+use bcder::{BitString, ConstOid, Oid};
 use kmip::{
     client::pool::SyncConnPool,
     types::{
@@ -146,17 +146,6 @@ impl KeyUrl {
     }
 }
 
-//--- impl Into<Url>
-
-// Disablow the Clippy lint as it is safe to go from a KeyURL to a URL but
-// not vice-versa, so we implement Into but not From.
-#[allow(clippy::from_over_into)]
-impl Into<Url> for KeyUrl {
-    fn into(self) -> Url {
-        self.url
-    }
-}
-
 //--- impl Deref
 
 impl std::ops::Deref for KeyUrl {
@@ -168,6 +157,12 @@ impl std::ops::Deref for KeyUrl {
 }
 
 //--- Conversions
+
+impl From<KeyUrl> for Url {
+    fn from(key_url: KeyUrl) -> Self {
+        key_url.url
+    }
+}
 
 impl TryFrom<Url> for KeyUrl {
     type Error = String;
@@ -222,7 +217,7 @@ impl TryFrom<Url> for KeyUrl {
 
 //--- impl Display
 
-impl std::fmt::Display for KeyUrl {
+impl fmt::Display for KeyUrl {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.url.fmt(f)
     }
@@ -261,54 +256,6 @@ impl PublicKey {
         algorithm: SecurityAlgorithm,
         conn_pool: SyncConnPool,
     ) -> Result<Self, PublicKeyError> {
-        let public_key =
-            Self::fetch_public_key(public_key_id, algorithm, &conn_pool)?;
-
-        Ok(Self {
-            algorithm,
-            public_key,
-        })
-    }
-
-    /// Create a public key from a key stored on a KMIP server.
-    ///
-    /// This is a thin wrapper around
-    /// [`Self::for_key_id_and_dnssec_algorithm`].
-    pub fn for_key_url(
-        public_key_url: KeyUrl,
-        conn_pool: SyncConnPool,
-    ) -> Result<Self, PublicKeyError> {
-        Self::for_key_id_and_dnssec_algorithm(
-            public_key_url.key_id(),
-            public_key_url.algorithm(),
-            conn_pool,
-        )
-    }
-
-    /// The DNSSEC algorithm of the key.
-    pub fn algorithm(&self) -> SecurityAlgorithm {
-        self.algorithm
-    }
-
-    /// Generate a DNSKEY RR or this public key.
-    pub fn dnskey(&self, flags: u16) -> Dnskey<Vec<u8>> {
-        // SAFETY: The key came from a KMIP server and was validated to have
-        // the expected length when the KMIP server response was parsed by
-        // fetch_public_key().
-        Dnskey::new(flags, 3, self.algorithm, self.public_key.clone()).unwrap()
-    }
-}
-
-impl PublicKey {
-    /// Query the KMIP server for the bytes of the specified public key.
-    ///
-    /// Verifies that the cryptographic algorithm of the key is compatible
-    /// with the specified DNSSEC algorithm.
-    fn fetch_public_key(
-        public_key_id: &str,
-        expected_algorithm: SecurityAlgorithm,
-        conn_pool: &SyncConnPool,
-    ) -> Result<Vec<u8>, PublicKeyError> {
         // https://datatracker.ietf.org/doc/html/rfc5702#section-2
         // Use of SHA-2 Algorithms with RSA in DNSKEY and RRSIG Resource
         // Records for DNSSEC
@@ -384,7 +331,7 @@ impl PublicKey {
         // == KeyFormatType::Raw. However, Fortanix DSM returns
         // KeyFormatType::Raw when fetching key data for an ECDSA public key.
 
-        let octets = match public_key.key_block.key_value.key_material {
+        match public_key.key_block.key_value.key_material {
             KeyMaterial::Bytes(bytes) => {
                 debug!(
                     "Cryptographic Algorithm: {:?}",
@@ -404,201 +351,29 @@ impl PublicKey {
                 );
                 debug!("Key bytes as hex: {}", base16::encode_display(&bytes));
 
-                match (expected_algorithm, public_key.key_block.key_format_type)
-                {
-                    (SecurityAlgorithm::RSASHA1, KeyFormatType::PKCS1)
-                    | (
-                        SecurityAlgorithm::RSASHA1_NSEC3_SHA1,
+                match (algorithm, public_key.key_block.key_format_type) {
+                    (
+                        SecurityAlgorithm::RSAMD5
+                        | SecurityAlgorithm::RSASHA1
+                        | SecurityAlgorithm::RSASHA1_NSEC3_SHA1
+                        | SecurityAlgorithm::RSASHA256
+                        | SecurityAlgorithm::RSASHA512,
                         KeyFormatType::PKCS1,
-                    )
-                    | (SecurityAlgorithm::RSASHA256, KeyFormatType::PKCS1)
-                    | (SecurityAlgorithm::RSASHA512, KeyFormatType::PKCS1) => {
-                        // PyKMIP outputs PKCS#1 ASN.1 DER encoded RSA public
-                        // key data like so:
-                        //   RSAPublicKey::=SEQUENCE{
-                        //     modulus INTEGER, -- n
-                        //     publicExponent INTEGER -- e }
-                        let source = SliceSource::new(&bytes);
-                        let mut modulus = None;
-                        let mut public_exponent = None;
-                        bcder::Mode::Der
-                            .decode(source, |cons| {
-                                cons.take_sequence(|cons| {
-                                    modulus = Some(bcder::Unsigned::take_from(cons)?);
-                                    public_exponent = Some(bcder::Unsigned::take_from(cons)?);
-                                    Ok(())
-                                })
-                            })
-                            .map_err(|err| {
-                                kmip::client::Error::DeserializeError(format!(
-                                    "Unable to parse DER encoded PKCS#1 RSAPublicKey: {err}"
-                                ))
-                            })?;
+                    ) => Self::parse_rsa_from_pkcs1(algorithm, &bytes),
 
-                        let Some(modulus) = modulus else {
-                            return Err(kmip::client::Error::DeserializeError(
-                                "Unable to parse DER encoded PKCS#1 RSAPublicKey: missing modulus"
-                                    .into(),
-                            ))?;
-                        };
-
-                        let Some(public_exponent) = public_exponent else {
-                            return Err(kmip::client::Error::DeserializeError("Unable to parse DER encoded PKCS#1 RSAPublicKey: missing public exponent".into()))?;
-                        };
-
-                        let n = modulus.as_slice();
-                        let e = public_exponent.as_slice();
-                        domain::crypto::common::rsa_encode(e, n)
-                    }
-
-                    (SecurityAlgorithm::RSASHA1, KeyFormatType::Raw)
-                    | (
-                        SecurityAlgorithm::RSASHA1_NSEC3_SHA1,
+                    (
+                        SecurityAlgorithm::RSAMD5
+                        | SecurityAlgorithm::RSASHA1
+                        | SecurityAlgorithm::RSASHA1_NSEC3_SHA1
+                        | SecurityAlgorithm::RSASHA256
+                        | SecurityAlgorithm::RSASHA512,
                         KeyFormatType::Raw,
-                    )
-                    | (SecurityAlgorithm::RSASHA256, KeyFormatType::Raw)
-                    | (SecurityAlgorithm::RSASHA512, KeyFormatType::Raw) => {
-                        // For an RSA key Fortanix DSM supplies: (from https://asn1js.eu/)
-                        //   SubjectPublicKeyInfo SEQUENCE (2 elem)
-                        //     algorithm AlgorithmIdentifier SEQUENCE (2 elem)
-                        //       algorithm OBJECT IDENTIFIER 1.2.840.113549.1.1.1 rsaEncryption (PKCS #1)
-                        //       parameter ANY NULL
-                        //     subjectPublicKey BIT STRING (2160 bit) 001100001000001000000001000010100000001010000010000000010000000100000…
-                        //       SEQUENCE (2 elem)
-                        //         INTEGER (2048 bit) 229677698057230630160769379936346719377896297586216888467726484346678…
-                        //         INTEGER 65537
-                        let source = SliceSource::new(&bytes);
-                        let mut modulus = None;
-                        let mut public_exponent = None;
-                        bcder::Mode::Der
-                            .decode(source, |cons| {
-                                cons.take_sequence(|cons| {
-                                    cons.take_sequence(|cons| {
-                                        let algorithm = Oid::take_from(cons)?;
-                                        if algorithm != RSA_ENCRYPTION_OID {
-                                            return Err(cons.content_err("Only SubjectPublicKeyInfo with algorithm rsaEncryption is supported"));
-                                        }
-                                        // Ignore the parameters.
-                                        Ok(())
-                                    })?;
-                                    cons.take_sequence(|cons| {
-                                        modulus = Some(bcder::Unsigned::take_from(cons)?);
-                                        public_exponent = Some(bcder::Unsigned::take_from(cons)?);
-                                        Ok(())
-                                    })
-                                })
-                            }).map_err(|err| kmip::client::Error::DeserializeError(format!("Unable to parse raw RSASHA256 SubjectPublicKeyInfo: {err}")))?;
-
-                        let Some(modulus) = modulus else {
-                            return Err(kmip::client::Error::DeserializeError("Unable to parse raw RSASHA256 SubjectPublicKeyInfo: missing modulus".into()))?;
-                        };
-
-                        let Some(public_exponent) = public_exponent else {
-                            return Err(kmip::client::Error::DeserializeError("Unable to parse raw RSASHA256 SubjectPublicKeyInfo: missing public exponent".into()))?;
-                        };
-
-                        let n = modulus.as_slice();
-                        let e = public_exponent.as_slice();
-                        domain::crypto::common::rsa_encode(e, n)
-                    }
+                    ) => Self::parse_rsa_from_raw(algorithm, &bytes),
 
                     (
                         SecurityAlgorithm::ECDSAP256SHA256,
                         KeyFormatType::Raw,
-                    ) => {
-                        // For an ECDSA key Fortanix DSM supplies: (from https://asn1js.eu/)
-                        //   SubjectPublicKeyInfo SEQUENCE @0+89 (constructed): (2 elem)
-                        //     algorithm AlgorithmIdentifier SEQUENCE @2+19 (constructed): (2 elem)
-                        //       algorithm OBJECT_IDENTIFIER @4+7: 1.2.840.10045.2.1|ecPublicKey|ANSI X9.62 public key type
-                        //       parameters ANY OBJECT_IDENTIFIER @13+8: 1.2.840.10045.3.1.7|prime256v1|ANSI X9.62 named elliptic curve
-                        //     subjectPublicKey BIT_STRING @23+66: (520 bit)
-                        //
-                        // From: https://www.rfc-editor.org/rfc/rfc5480.html#section-2.1.1
-                        //   The parameter for id-ecPublicKey is as follows and MUST always be
-                        //   present:
-                        //
-                        //     ECParameters ::= CHOICE {
-                        //       namedCurve         OBJECT IDENTIFIER
-                        //       -- implicitCurve   NULL
-                        //       -- specifiedCurve  SpecifiedECDomain
-                        //     }
-                        //       -- implicitCurve and specifiedCurve MUST NOT be used in PKIX.
-                        //       -- Details for SpecifiedECDomain can be found in [X9.62].
-                        //       -- Any future additions to this CHOICE should be coordinated
-                        //       -- with ANSI X9.
-                        let source = SliceSource::new(&bytes);
-                        let mut bits = None;
-                        bcder::Mode::Der
-                            .decode(source, |cons| {
-                                cons.take_sequence(|cons| {
-                                    cons.take_sequence(|cons| {
-                                        let algorithm = Oid::take_from(cons)?;
-                                        if algorithm != EC_PUBLIC_KEY_OID {
-                                            Err(cons.content_err("Only SubjectPublicKeyInfo with algorithm id-ecPublicKey is supported"))
-                                        } else {
-                                            let named_curve = Oid::take_from(cons)?;
-                                            if named_curve != SECP256R1_OID {
-                                               return Err(cons.content_err("Only SubjectPublicKeyInfo with namedCurve secp256r1 is supported"));
-                                            }
-                                            Ok(())
-                                        }
-                                    })?;
-                                    bits = Some(BitString::take_from(cons)?);
-                                    Ok(())
-                                })
-                            }).map_err(|err| kmip::client::Error::DeserializeError(format!("Unable to parse ECDSAP256SHA256 SubjectPublicKeyInfo: {err}")))?;
-
-                        let Some(bits) = bits else {
-                            return Err(kmip::client::Error::DeserializeError("Unable to parse ECDSAP256SHA256 SubjectPublicKeyInfo bit string: missing octets".into()))?;
-                        };
-
-                        // https://www.rfc-editor.org/rfc/rfc5480#section-2.2
-                        //   "The subjectPublicKey from SubjectPublicKeyInfo
-                        //    is the ECC public key. ECC public keys have the
-                        //    following syntax:
-                        //
-                        //        ECPoint ::= OCTET STRING
-                        //    ...
-                        //    The first octet of the OCTET STRING indicates
-                        //    whether the key is compressed or uncompressed.
-                        //    The uncompressed form is indicated by 0x04 and
-                        //    the compressed form is indicated by either 0x02
-                        //    or 0x03 (see 2.3.3 in [SEC1]).  The public key
-                        //    MUST be rejected if any other value is included
-                        //    in the first octet."
-                        let Some(octets) = bits.octet_slice() else {
-                            return Err(kmip::client::Error::DeserializeError("Unable to parse ECDSAP256SHA256 SubjectPublicKeyInfo bit string: missing octets".into()))?;
-                        };
-
-                        // Expect octet string to be [<compression flag byte>,
-                        // <32-byte X value>, <32-byte Y value>].
-                        if octets.len() != 65 {
-                            return Err(
-                                kmip::client::Error::DeserializeError(format!(
-                                    "Unable to parse ECDSAP256SHA256 SubjectPublicKeyInfo bit string: expected [<compression flag byte>, <32-byte X value>, <32-byte Y value>]: {} ({} bytes)",
-                                    base16::encode_display(octets),
-                                    octets.len()
-                                )),
-                            )?;
-                        }
-
-                        // Note: OpenDNSSEC doesn't support the compressed
-                        // form either.
-                        let compression_flag = octets[0];
-                        if compression_flag != 0x04 {
-                            return Err(
-                                kmip::client::Error::DeserializeError(format!(
-                                    "Unable to parse ECDSAP256SHA256 SubjectPublicKeyInfo bit string: unknown compression flag {compression_flag:?}"
-                                )),
-                            )?;
-                        }
-
-                        // Expect octet string to be X | Y (| denotes
-                        // concatenation) where X and Y are each 32 bytes
-                        // (because P-256 uses 256 bit values and 256 bits are
-                        // 32 bytes). Skip the compression flag.
-                        octets[1..].to_vec()
-                    }
+                    ) => Self::parse_ecdsa_from_raw(algorithm, &bytes),
 
                     (expected, key_format_type) => {
                         let alg = public_key
@@ -613,10 +388,10 @@ impl PublicKey {
                             .unwrap_or("unknown length".to_string());
                         let actual =
                             format!("{alg} ({len}) as {key_format_type}");
-                        return Err(PublicKeyError::AlgorithmMismatch {
+                        Err(PublicKeyError::AlgorithmMismatch {
                             expected,
                             actual,
-                        });
+                        })
                     }
                 }
             }
@@ -627,16 +402,267 @@ impl PublicKey {
                     modulus,
                     public_exponent,
                 },
-            ) => rsa_encode(&public_exponent, &modulus),
+            ) => Ok(Self {
+                algorithm,
+                public_key: rsa_encode(&public_exponent, &modulus),
+            }),
 
-            mat => {
-                return Err(kmip::client::Error::DeserializeError(format!(
-                    "Fetched KMIP object has unsupported key material type: {mat}"
-                )))?;
-            }
+            mat => Err(kmip::client::Error::DeserializeError(format!(
+                "Fetched KMIP object has unsupported key material type: {mat}"
+            ))
+            .into()),
+        }
+    }
+
+    /// Create a public key from a key stored on a KMIP server.
+    ///
+    /// This is a thin wrapper around
+    /// [`Self::for_key_id_and_dnssec_algorithm`].
+    pub fn for_key_url(
+        public_key_url: KeyUrl,
+        conn_pool: SyncConnPool,
+    ) -> Result<Self, PublicKeyError> {
+        Self::for_key_id_and_dnssec_algorithm(
+            public_key_url.key_id(),
+            public_key_url.algorithm(),
+            conn_pool,
+        )
+    }
+
+    /// The DNSSEC algorithm of the key.
+    pub fn algorithm(&self) -> SecurityAlgorithm {
+        self.algorithm
+    }
+
+    /// Generate a DNSKEY RR or this public key.
+    pub fn dnskey(&self, flags: u16) -> Dnskey<Vec<u8>> {
+        // SAFETY: The key came from a KMIP server and was validated to have
+        // the expected length when the KMIP server response was parsed by
+        // fetch_public_key().
+        Dnskey::new(flags, 3, self.algorithm, self.public_key.clone()).unwrap()
+    }
+}
+
+impl PublicKey {
+    /// Parse an RSA key encoded in the PKCS#1 format.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the specified DNS security algorithm for the key does not use
+    /// RSA.
+    fn parse_rsa_from_pkcs1(
+        algorithm: SecurityAlgorithm,
+        bytes: &[u8],
+    ) -> Result<Self, PublicKeyError> {
+        // Ensure the specified algorithm uses RSA.
+        assert!(matches!(
+            algorithm,
+            SecurityAlgorithm::RSAMD5
+                | SecurityAlgorithm::RSASHA1
+                | SecurityAlgorithm::RSASHA1_NSEC3_SHA1
+                | SecurityAlgorithm::RSASHA256
+                | SecurityAlgorithm::RSASHA512
+        ));
+
+        // PyKMIP outputs PKCS#1 ASN.1 DER encoded RSA public key data like so:
+        //   RSAPublicKey::=SEQUENCE{
+        //     modulus INTEGER, -- n
+        //     publicExponent INTEGER -- e }
+
+        // TODO: Decode this manually, to avoid the 'bcder' dependency?
+        let (modulus, public_exponent) = bcder::Mode::Der
+            .decode(bytes, |cons| {
+                cons.take_sequence(|cons| {
+                    let modulus = bcder::Unsigned::take_from(cons)?;
+                    let public_exponent = bcder::Unsigned::take_from(cons)?;
+                    Ok((modulus, public_exponent))
+                })
+            })
+            .map_err(|err| {
+                kmip::client::Error::DeserializeError(format!(
+                    "Unable to parse DER encoded PKCS#1 RSAPublicKey: {err}"
+                ))
+            })?;
+
+        let public_key = domain::crypto::common::rsa_encode(
+            public_exponent.as_slice(),
+            modulus.as_slice(),
+        );
+
+        Ok(Self {
+            algorithm,
+            public_key,
+        })
+    }
+
+    /// Parse an RSA key encoded in the KMIP "raw" format convention.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the specified DNS security algorithm for the key does not use
+    /// RSA.
+    fn parse_rsa_from_raw(
+        algorithm: SecurityAlgorithm,
+        bytes: &[u8],
+    ) -> Result<Self, PublicKeyError> {
+        // Ensure the specified algorithm uses RSA.
+        assert!(matches!(
+            algorithm,
+            SecurityAlgorithm::RSAMD5
+                | SecurityAlgorithm::RSASHA1
+                | SecurityAlgorithm::RSASHA1_NSEC3_SHA1
+                | SecurityAlgorithm::RSASHA256
+                | SecurityAlgorithm::RSASHA512
+        ));
+
+        // For an RSA key Fortanix DSM supplies: (from https://asn1js.eu/)
+        //   SubjectPublicKeyInfo SEQUENCE (2 elem)
+        //     algorithm AlgorithmIdentifier SEQUENCE (2 elem)
+        //       algorithm OBJECT IDENTIFIER 1.2.840.113549.1.1.1 rsaEncryption (PKCS #1)
+        //       parameter ANY NULL
+        //     subjectPublicKey BIT STRING (2160 bit) 001100001000001000000001000010100000001010000010000000010000000100000…
+        //       SEQUENCE (2 elem)
+        //         INTEGER (2048 bit) 229677698057230630160769379936346719377896297586216888467726484346678…
+        //         INTEGER 65537
+
+        // TODO: Decode this manually, to avoid the 'bcder' dependency?
+        let (modulus, public_exponent) =
+            bcder::Mode::Der
+                .decode(bytes, |cons| {
+                    cons.take_sequence(|cons| {
+                        cons.take_sequence(|cons| {
+                            let algorithm = Oid::take_from(cons)?;
+                            if algorithm != RSA_ENCRYPTION_OID {
+                                return Err(cons.content_err("Only SubjectPublicKeyInfo with algorithm rsaEncryption is supported"));
+                            }
+                            // Ignore the parameters.
+                            Ok(())
+                        })?;
+                        cons.take_sequence(|cons| {
+                            let modulus = bcder::Unsigned::take_from(cons)?;
+                            let public_exponent = bcder::Unsigned::take_from(cons)?;
+                            Ok((modulus, public_exponent))
+                        })
+                    })
+                })
+                .map_err(|err| {
+                    kmip::client::Error::DeserializeError(format!(
+                        "Unable to parse raw RSASHA256 SubjectPublicKeyInfo: {err}"
+                    ))
+                })?;
+
+        let public_key = domain::crypto::common::rsa_encode(
+            public_exponent.as_slice(),
+            modulus.as_slice(),
+        );
+
+        Ok(Self {
+            algorithm,
+            public_key,
+        })
+    }
+
+    /// Parse an ECDSA key encoded in the KMIP "raw" format convention.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the specified DNS security algorithm for the key does not use
+    /// RSA.
+    fn parse_ecdsa_from_raw(
+        algorithm: SecurityAlgorithm,
+        bytes: &[u8],
+    ) -> Result<Self, PublicKeyError> {
+        // Ensure the specified algorithm uses ECDSA.
+        // TODO: Support ECDSAP384SHA384.
+        assert!(matches!(algorithm, SecurityAlgorithm::ECDSAP256SHA256));
+
+        // For an ECDSA key Fortanix DSM supplies: (from https://asn1js.eu/)
+        //   SubjectPublicKeyInfo SEQUENCE @0+89 (constructed): (2 elem)
+        //     algorithm AlgorithmIdentifier SEQUENCE @2+19 (constructed): (2 elem)
+        //       algorithm OBJECT_IDENTIFIER @4+7: 1.2.840.10045.2.1|ecPublicKey|ANSI X9.62 public key type
+        //       parameters ANY OBJECT_IDENTIFIER @13+8: 1.2.840.10045.3.1.7|prime256v1|ANSI X9.62 named elliptic curve
+        //     subjectPublicKey BIT_STRING @23+66: (520 bit)
+        //
+        // From: https://www.rfc-editor.org/rfc/rfc5480.html#section-2.1.1
+        //   The parameter for id-ecPublicKey is as follows and MUST always be
+        //   present:
+        //
+        //     ECParameters ::= CHOICE {
+        //       namedCurve         OBJECT IDENTIFIER
+        //       -- implicitCurve   NULL
+        //       -- specifiedCurve  SpecifiedECDomain
+        //     }
+        //       -- implicitCurve and specifiedCurve MUST NOT be used in PKIX.
+        //       -- Details for SpecifiedECDomain can be found in [X9.62].
+        //       -- Any future additions to this CHOICE should be coordinated
+        //       -- with ANSI X9.
+        let bits = bcder::Mode::Der
+            .decode(bytes, |cons| {
+                cons.take_sequence(|cons| {
+                    cons.take_sequence(|cons| {
+                        let algorithm = Oid::take_from(cons)?;
+                        if algorithm != EC_PUBLIC_KEY_OID {
+                            Err(cons.content_err("Only SubjectPublicKeyInfo with algorithm id-ecPublicKey is supported"))
+                        } else {
+                            let named_curve = Oid::take_from(cons)?;
+                            if named_curve != SECP256R1_OID {
+                               return Err(cons.content_err("Only SubjectPublicKeyInfo with namedCurve secp256r1 is supported"));
+                            }
+                            Ok(())
+                        }
+                    })?;
+                    let bits = BitString::take_from(cons)?;
+                    Ok(bits)
+                })
+            }).map_err(|err| kmip::client::Error::DeserializeError(format!("Unable to parse ECDSAP256SHA256 SubjectPublicKeyInfo: {err}")))?;
+
+        // https://www.rfc-editor.org/rfc/rfc5480#section-2.2
+        //   "The subjectPublicKey from SubjectPublicKeyInfo
+        //    is the ECC public key. ECC public keys have the
+        //    following syntax:
+        //
+        //        ECPoint ::= OCTET STRING
+        //    ...
+        //    The first octet of the OCTET STRING indicates
+        //    whether the key is compressed or uncompressed.
+        //    The uncompressed form is indicated by 0x04 and
+        //    the compressed form is indicated by either 0x02
+        //    or 0x03 (see 2.3.3 in [SEC1]).  The public key
+        //    MUST be rejected if any other value is included
+        //    in the first octet."
+        let Some(octets) = bits.octet_slice() else {
+            return Err(kmip::client::Error::DeserializeError("Unable to parse ECDSAP256SHA256 SubjectPublicKeyInfo bit string: missing octets".into()))?;
         };
 
-        Ok(octets)
+        // Expect octet string to be [<compression flag byte>,
+        // <32-byte X value>, <32-byte Y value>].
+        if octets.len() != 65 {
+            return Err(kmip::client::Error::DeserializeError(format!(
+                "Unable to parse ECDSAP256SHA256 SubjectPublicKeyInfo bit string: expected [<compression flag byte>, <32-byte X value>, <32-byte Y value>]: {} ({} bytes)",
+                base16::encode_display(octets),
+                octets.len()
+            )))?;
+        }
+
+        // Note: OpenDNSSEC doesn't support the compressed
+        // form either.
+        let compression_flag = octets[0];
+        if compression_flag != 0x04 {
+            return Err(kmip::client::Error::DeserializeError(format!(
+                "Unable to parse ECDSAP256SHA256 SubjectPublicKeyInfo bit string: unknown compression flag {compression_flag:?}"
+            )))?;
+        }
+
+        // Expect octet string to be X | Y (| denotes
+        // concatenation) where X and Y are each 32 bytes
+        // (because P-256 uses 256 bit values and 256 bits are
+        // 32 bytes). Skip the compression flag.
+        let public_key = octets[1..].to_vec();
+
+        Ok(Self {
+            algorithm,
+            public_key,
+        })
     }
 }
 
@@ -1547,12 +1573,13 @@ mod tests {
     use std::time::SystemTime;
     use std::vec::Vec;
 
+    use domain::base::iana::SecurityAlgorithm;
     use kmip::client::ConnectionSettings;
     use kmip::client::pool::ConnectionManager;
 
     use domain::crypto::sign::SignRaw;
 
-    use super::sign::generate;
+    use super::{PublicKey, sign::generate};
 
     fn init_logging() {
         use tracing_subscriber::EnvFilter;
@@ -1564,6 +1591,63 @@ mod tests {
             // Useful sometimes:
             // .with_span_events(tracing_subscriber::fmt::format::FmtSpan::NEW)
             .init();
+    }
+
+    /// Test [`PublicKey::parse_rsa_from_pkcs1()`].
+    #[test]
+    fn parse_rsa_key_from_pkcs1() {
+        // TODO: Find real-world samples.
+        let bytes = [48, 6, 2, 1, 127, 2, 1, 42];
+        let key = PublicKey::parse_rsa_from_pkcs1(
+            SecurityAlgorithm::RSASHA256,
+            &bytes,
+        )
+        .unwrap();
+        assert_eq!(key.algorithm, SecurityAlgorithm::RSASHA256);
+        assert_eq!(key.public_key, [1, 42, 127]);
+    }
+
+    /// Test [`PublicKey::parse_rsa_from_raw()`].
+    #[test]
+    fn parse_rsa_key_from_raw() {
+        // TODO: Find real-world samples.
+        let bytes = [
+            48, 21, 48, 11, 6, 9, 42, 134, 72, 134, 247, 13, 1, 1, 1, 48, 6, 2,
+            1, 127, 2, 1, 42,
+        ];
+        let key =
+            PublicKey::parse_rsa_from_raw(SecurityAlgorithm::RSASHA256, &bytes)
+                .unwrap();
+        assert_eq!(key.algorithm, SecurityAlgorithm::RSASHA256);
+        assert_eq!(key.public_key, [1, 42, 127]);
+    }
+
+    /// Test [`PublicKey::parse_ecdsa_from_raw()`].
+    #[test]
+    fn parse_ecdsa_key_from_raw() {
+        // TODO: Find real-world samples.
+        let bytes = [
+            48, 89, 48, 19, 6, 7, 42, 134, 72, 206, 61, 2, 1, 6, 8, 42, 134,
+            72, 206, 61, 3, 1, 7, 3, 66, 0, 4, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0,
+        ];
+        let key = PublicKey::parse_ecdsa_from_raw(
+            SecurityAlgorithm::ECDSAP256SHA256,
+            &bytes,
+        )
+        .unwrap();
+        assert_eq!(key.algorithm, SecurityAlgorithm::ECDSAP256SHA256);
+        assert_eq!(
+            key.public_key,
+            [
+                1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0
+            ]
+        );
     }
 
     #[test]
