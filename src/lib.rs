@@ -640,7 +640,6 @@ pub mod sign {
         PublicKeyTemplateAttribute, RequestPayload,
     };
     use kmip::types::response::{CreateKeyPairResponsePayload, ResponsePayload};
-    use openssl::ecdsa::EcdsaSig;
     use tracing::{debug, error, trace};
     use url::Url;
     use uuid::Uuid;
@@ -953,13 +952,43 @@ pub mod sign {
                     //          :   }
                     //
                     // Where the two integer values are known as 'r' and 's'.
-                    let signature = EcdsaSig::from_der(&signed.signature_data).unwrap();
-                    let mut r = signature.r().to_vec_padded(32).unwrap();
-                    let mut s = signature.s().to_vec_padded(32).unwrap();
-                    r.append(&mut s);
-                    Ok(Signature::EcdsaP256Sha256(Box::<[u8; 64]>::new(
-                        r.try_into().unwrap(),
-                    )))
+                    let (r, s) = bcder::Mode::Der
+                        .decode(&*signed.signature_data, |cons| {
+                            cons.take_sequence(|cons| {
+                                let r = bcder::Unsigned::take_from(cons)?;
+                                let s = bcder::Unsigned::take_from(cons)?;
+                                Ok((r, s))
+                            })
+                        })
+                        .map_err(|err| {
+                            format!("Unable to parse DER encoded PKCS#1 RSAPublicKey: {err}")
+                        })?;
+                    let (mut r, mut s) = (r.as_slice(), s.as_slice());
+
+                    // In DER, there can be at most one leading zero byte,
+                    // because the high bit might be set and that would
+                    // otherwise indicate a negative integer.  Strip it.
+                    for x in [&mut r, &mut s] {
+                        *x = match *x {
+                            [0, 0x80..=0xFF, ..] => &x[1..],
+                            // Badly formatted signature.
+                            [0, _, ..] => {
+                                error!("Leading zeros in ECDSA signature integer");
+                                return Err(SignError);
+                            }
+                            x => x,
+                        };
+
+                        if x.len() > 32 {
+                            error!("Overly long ECDSA signature integer");
+                            return Err(SignError);
+                        }
+                    }
+
+                    let mut signature = Box::new([0u8; 64]);
+                    signature[..32 - r.len()].copy_from_slice(r);
+                    signature[..64 - r.len()].copy_from_slice(s);
+                    Ok(Signature::EcdsaP256Sha256(signature))
                 }
 
                 // TODO
