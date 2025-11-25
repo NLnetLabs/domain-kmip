@@ -998,60 +998,9 @@ pub mod sign {
                 )),
 
                 (SecurityAlgorithm::ECDSAP256SHA256, _) => {
-                    // ECDSA signature received from Fortanix DSM, decoded
-                    // using this command:
-                    //
-                    //   $ echo '<hex encoded signature data>' | xxd -r -p | dumpasn1 -
-                    //     0  69: SEQUENCE {
-                    //     2  33:   INTEGER
-                    //          :     00 C6 A7 D1 2E A1 0C B4 96 BD D9 A5 48 2C 9B F4
-                    //          :     0C EC 9F FC EF 1A 0D 59 BB B9 24 F3 FE DA DC F8
-                    //          :     9E
-                    //    37  32:   INTEGER
-                    //          :     4B A7 22 69 F2 F8 65 88 63 D0 25 D3 A9 D5 92 4F
-                    //          :     A2 21 BD 59 CD 27 60 6D 16 C3 79 EF B4 0A CA 33
-                    //          :   }
-                    //
-                    // Where the two integer values are known as 'r' and 's'.
-                    let (r, s) = bcder::Mode::Der
-                        .decode(&*signed.signature_data, |cons| {
-                            cons.take_sequence(|cons| {
-                                let r = bcder::Unsigned::take_from(cons)?;
-                                let s = bcder::Unsigned::take_from(cons)?;
-                                Ok((r, s))
-                            })
-                        })
-                        .map_err(|err| {
-                            error!("Unable to parse DER encoded PKCS#1 RSAPublicKey: {err}");
-                            SignError
-                        })?;
-                    let (mut r, mut s) = (r.as_slice(), s.as_slice());
-
-                    // In DER, there can be at most one leading zero byte,
-                    // because the high bit might be set and that would
-                    // otherwise indicate a negative integer.  Strip it.
-                    for x in [&mut r, &mut s] {
-                        *x = match *x {
-                            [0, 0x80..=0xFF, ..] => &x[1..],
-                            // Badly formatted signature.
-                            [0, _, ..] => {
-                                error!(
-                                    "Leading zeros in ECDSA signature integer"
-                                );
-                                return Err(SignError);
-                            }
-                            x => x,
-                        };
-
-                        if x.len() > 32 {
-                            error!("Overly long ECDSA signature integer");
-                            return Err(SignError);
-                        }
-                    }
-
-                    let mut signature = Box::new([0u8; 64]);
-                    signature[..32 - r.len()].copy_from_slice(r);
-                    signature[..64 - r.len()].copy_from_slice(s);
+                    let signature = Self::parse_ecdsa_sig_from_x962(
+                        &signed.signature_data,
+                    )?;
                     Ok(Signature::EcdsaP256Sha256(signature))
                 }
 
@@ -1067,6 +1016,67 @@ pub mod sign {
                     Err(SignError)
                 }
             }
+        }
+
+        /// Parse an ECDSA signature from the X9.62 ASN.1 DER format.
+        pub(crate) fn parse_ecdsa_sig_from_x962(
+            bytes: &[u8],
+        ) -> Result<Box<[u8; 64]>, SignError> {
+            // ECDSA signature received from Fortanix DSM, decoded
+            // using this command:
+            //
+            //   $ echo '<hex encoded signature data>' | xxd -r -p | dumpasn1 -
+            //     0  69: SEQUENCE {
+            //     2  33:   INTEGER
+            //          :     00 C6 A7 D1 2E A1 0C B4 96 BD D9 A5 48 2C 9B F4
+            //          :     0C EC 9F FC EF 1A 0D 59 BB B9 24 F3 FE DA DC F8
+            //          :     9E
+            //    37  32:   INTEGER
+            //          :     4B A7 22 69 F2 F8 65 88 63 D0 25 D3 A9 D5 92 4F
+            //          :     A2 21 BD 59 CD 27 60 6D 16 C3 79 EF B4 0A CA 33
+            //          :   }
+            //
+            // Where the two integer values are known as 'r' and 's'.
+            let (r, s) = bcder::Mode::Der
+                .decode(bytes, |cons| {
+                    cons.take_sequence(|cons| {
+                        let r = bcder::Unsigned::take_from(cons)?;
+                        let s = bcder::Unsigned::take_from(cons)?;
+                        Ok((r, s))
+                    })
+                })
+                .map_err(|err| {
+                    error!(
+                        "Unable to parse DER encoded PKCS#1 RSAPublicKey: {err}"
+                    );
+                    SignError
+                })?;
+            let (mut r, mut s) = (r.as_slice(), s.as_slice());
+
+            // In DER, there can be at most one leading zero byte,
+            // because the high bit might be set and that would
+            // otherwise indicate a negative integer.  Strip it.
+            for x in [&mut r, &mut s] {
+                *x = match *x {
+                    [0, 0x80..=0xFF, ..] => &x[1..],
+                    // Badly formatted signature.
+                    [0, _, ..] => {
+                        error!("Leading zeros in ECDSA signature integer");
+                        return Err(SignError);
+                    }
+                    x => x,
+                };
+
+                if x.len() > 32 {
+                    error!("Overly long ECDSA signature integer");
+                    return Err(SignError);
+                }
+            }
+
+            let mut signature = Box::new([0u8; 64]);
+            signature[32 - r.len()..32].copy_from_slice(r);
+            signature[64 - r.len()..64].copy_from_slice(s);
+            Ok(signature)
         }
     }
 
@@ -1579,6 +1589,8 @@ mod tests {
 
     use domain::crypto::sign::SignRaw;
 
+    use crate::sign::KeyPair;
+
     use super::{PublicKey, sign::generate};
 
     fn init_logging() {
@@ -1646,6 +1658,23 @@ mod tests {
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0
+            ]
+        );
+    }
+
+    /// Test [`KeyPair::parse_ecdsa_sig_from_x962()`].
+    #[test]
+    fn parse_ecdsa_sig_from_x962() {
+        // TODO: Find real-world samples.
+        let bytes = [48, 6, 2, 1, 21, 2, 1, 47];
+        let signature = KeyPair::parse_ecdsa_sig_from_x962(&bytes).unwrap();
+        assert_eq!(
+            *signature,
+            [
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 21, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                47
             ]
         );
     }
