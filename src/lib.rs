@@ -19,7 +19,8 @@ use tracing::{debug, error};
 use url::Url;
 
 use domain::{
-    base::iana::SecurityAlgorithm, crypto::common::rsa_encode, rdata::Dnskey, utils::base16,
+    base::iana::SecurityAlgorithm, crypto::common::rsa_encode, rdata::Dnskey,
+    utils::base16,
 };
 
 pub use kmip::client::{ClientCertificate, ConnectionSettings};
@@ -32,7 +33,8 @@ pub use domain;
 ///
 /// Identifies an RSA public key with no limitation to either RSASSA-PSS or
 /// RSAES-OEAP.
-pub const RSA_ENCRYPTION_OID: ConstOid = Oid(&[42, 134, 72, 134, 247, 13, 1, 1, 1]);
+pub const RSA_ENCRYPTION_OID: ConstOid =
+    Oid(&[42, 134, 72, 134, 247, 13, 1, 1, 1]);
 
 /// [RFC 5480](https://tools.ietf.org/html/rfc5480) `ecPublicKey`.
 ///
@@ -187,25 +189,26 @@ impl TryFrom<Url> for KeyUrl {
         for (k, v) in url.query_pairs() {
             match &*k {
                 "flags" => {
-                    flags = Some(
-                        v.parse::<u16>()
-                            .map_err(|err| format!("Key URL flags value is invalid: {err}"))?,
-                    )
+                    flags = Some(v.parse::<u16>().map_err(|err| {
+                        format!("Key URL flags value is invalid: {err}")
+                    })?)
                 }
                 "algorithm" => {
-                    algorithm = Some(
-                        SecurityAlgorithm::from_str(&v)
-                            .map_err(|err| format!("Key URL algorithm value is invalid: {err}"))?,
-                    )
+                    algorithm = Some(SecurityAlgorithm::from_str(&v).map_err(
+                        |err| {
+                            format!("Key URL algorithm value is invalid: {err}")
+                        },
+                    )?)
                 }
                 unknown => Err(format!(
                     "Key URL contains unknown query parameter: {unknown}"
                 ))?,
             }
         }
-        let algorithm =
-            algorithm.ok_or(format!("Key URL lacks algorithm query parameter: {url}"))?;
-        let flags = flags.ok_or(format!("Key URL lacks flags query parameter: {url}"))?;
+        let algorithm = algorithm
+            .ok_or(format!("Key URL lacks algorithm query parameter: {url}"))?;
+        let flags = flags
+            .ok_or(format!("Key URL lacks flags query parameter: {url}"))?;
 
         Ok(Self {
             url,
@@ -258,7 +261,8 @@ impl PublicKey {
         algorithm: SecurityAlgorithm,
         conn_pool: SyncConnPool,
     ) -> Result<Self, PublicKeyError> {
-        let public_key = Self::fetch_public_key(public_key_id, algorithm, &conn_pool)?;
+        let public_key =
+            Self::fetch_public_key(public_key_id, algorithm, &conn_pool)?;
 
         Ok(Self {
             algorithm,
@@ -363,7 +367,8 @@ impl PublicKey {
         let res = client
             .get_key(public_key_id)
             .inspect_err(|err| error!("{err}"))?;
-        let ManagedObject::PublicKey(public_key) = res.cryptographic_object else {
+        let ManagedObject::PublicKey(public_key) = res.cryptographic_object
+        else {
             return Err(kmip::client::Error::DeserializeError(format!(
                 "Fetched KMIP object was expected to be a PublicKey but was instead: {}",
                 res.cryptographic_object
@@ -399,9 +404,13 @@ impl PublicKey {
                 );
                 debug!("Key bytes as hex: {}", base16::encode_display(&bytes));
 
-                match (expected_algorithm, public_key.key_block.key_format_type) {
+                match (expected_algorithm, public_key.key_block.key_format_type)
+                {
                     (SecurityAlgorithm::RSASHA1, KeyFormatType::PKCS1)
-                    | (SecurityAlgorithm::RSASHA1_NSEC3_SHA1, KeyFormatType::PKCS1)
+                    | (
+                        SecurityAlgorithm::RSASHA1_NSEC3_SHA1,
+                        KeyFormatType::PKCS1,
+                    )
                     | (SecurityAlgorithm::RSASHA256, KeyFormatType::PKCS1)
                     | (SecurityAlgorithm::RSASHA512, KeyFormatType::PKCS1) => {
                         // PyKMIP outputs PKCS#1 ASN.1 DER encoded RSA public
@@ -443,7 +452,10 @@ impl PublicKey {
                     }
 
                     (SecurityAlgorithm::RSASHA1, KeyFormatType::Raw)
-                    | (SecurityAlgorithm::RSASHA1_NSEC3_SHA1, KeyFormatType::Raw)
+                    | (
+                        SecurityAlgorithm::RSASHA1_NSEC3_SHA1,
+                        KeyFormatType::Raw,
+                    )
                     | (SecurityAlgorithm::RSASHA256, KeyFormatType::Raw)
                     | (SecurityAlgorithm::RSASHA512, KeyFormatType::Raw) => {
                         // For an RSA key Fortanix DSM supplies: (from https://asn1js.eu/)
@@ -490,7 +502,10 @@ impl PublicKey {
                         domain::crypto::common::rsa_encode(e, n)
                     }
 
-                    (SecurityAlgorithm::ECDSAP256SHA256, KeyFormatType::Raw) => {
+                    (
+                        SecurityAlgorithm::ECDSAP256SHA256,
+                        KeyFormatType::Raw,
+                    ) => {
                         // For an ECDSA key Fortanix DSM supplies: (from https://asn1js.eu/)
                         //   SubjectPublicKeyInfo SEQUENCE @0+89 (constructed): (2 elem)
                         //     algorithm AlgorithmIdentifier SEQUENCE @2+19 (constructed): (2 elem)
@@ -558,20 +573,24 @@ impl PublicKey {
                         // Expect octet string to be [<compression flag byte>,
                         // <32-byte X value>, <32-byte Y value>].
                         if octets.len() != 65 {
-                            return Err(kmip::client::Error::DeserializeError(format!(
-                                "Unable to parse ECDSAP256SHA256 SubjectPublicKeyInfo bit string: expected [<compression flag byte>, <32-byte X value>, <32-byte Y value>]: {} ({} bytes)",
-                                base16::encode_display(octets),
-                                octets.len()
-                            )))?;
+                            return Err(
+                                kmip::client::Error::DeserializeError(format!(
+                                    "Unable to parse ECDSAP256SHA256 SubjectPublicKeyInfo bit string: expected [<compression flag byte>, <32-byte X value>, <32-byte Y value>]: {} ({} bytes)",
+                                    base16::encode_display(octets),
+                                    octets.len()
+                                )),
+                            )?;
                         }
 
                         // Note: OpenDNSSEC doesn't support the compressed
                         // form either.
                         let compression_flag = octets[0];
                         if compression_flag != 0x04 {
-                            return Err(kmip::client::Error::DeserializeError(format!(
-                                "Unable to parse ECDSAP256SHA256 SubjectPublicKeyInfo bit string: unknown compression flag {compression_flag:?}"
-                            )))?;
+                            return Err(
+                                kmip::client::Error::DeserializeError(format!(
+                                    "Unable to parse ECDSAP256SHA256 SubjectPublicKeyInfo bit string: unknown compression flag {compression_flag:?}"
+                                )),
+                            )?;
                         }
 
                         // Expect octet string to be X | Y (| denotes
@@ -592,8 +611,12 @@ impl PublicKey {
                             .cryptographic_length
                             .map(|l| l.to_string())
                             .unwrap_or("unknown length".to_string());
-                        let actual = format!("{alg} ({len}) as {key_format_type}");
-                        return Err(PublicKeyError::AlgorithmMismatch { expected, actual });
+                        let actual =
+                            format!("{alg} ({len}) as {key_format_type}");
+                        return Err(PublicKeyError::AlgorithmMismatch {
+                            expected,
+                            actual,
+                        });
                     }
                 }
             }
@@ -628,15 +651,17 @@ pub mod sign {
 
     use kmip::client::pool::SyncConnPool;
     use kmip::types::common::{
-        CryptographicAlgorithm, CryptographicParameters, CryptographicUsageMask, Data,
-        DigitalSignatureAlgorithm, HashingAlgorithm, PaddingMethod, UniqueBatchItemID,
-        UniqueIdentifier,
+        CryptographicAlgorithm, CryptographicParameters,
+        CryptographicUsageMask, Data, DigitalSignatureAlgorithm,
+        HashingAlgorithm, PaddingMethod, UniqueBatchItemID, UniqueIdentifier,
     };
     use kmip::types::request::{
         self, BatchItem, CommonTemplateAttribute, PrivateKeyTemplateAttribute,
         PublicKeyTemplateAttribute, RequestPayload,
     };
-    use kmip::types::response::{CreateKeyPairResponsePayload, ResponsePayload};
+    use kmip::types::response::{
+        CreateKeyPairResponsePayload, ResponsePayload,
+    };
     use tracing::{debug, error, trace};
     use url::Url;
     use uuid::Uuid;
@@ -647,7 +672,9 @@ pub mod sign {
     use domain::rdata::Dnskey;
     use domain::utils::base16;
 
-    use super::{DestroyError, GenerateError, KeyUrl, KeyUrlParseError, PublicKey};
+    use super::{
+        DestroyError, GenerateError, KeyUrl, KeyUrlParseError, PublicKey,
+    };
 
     //----------- KeyPair ----------------------------------------------------
 
@@ -811,7 +838,8 @@ pub mod sign {
         ) -> Result<Option<Signature>, SignError> {
             let request = self.sign_pre(data)?;
             let operation = request.operation();
-            let batch_item_id = UniqueBatchItemID(Uuid::new_v4().into_bytes().to_vec());
+            let batch_item_id =
+                UniqueBatchItemID(Uuid::new_v4().into_bytes().to_vec());
             let batch_item = BatchItem(operation, Some(batch_item_id), request);
             queue.0.push(batch_item);
             Ok(None)
@@ -881,8 +909,9 @@ pub mod sign {
                 self.flags
             );
 
-            let url = Url::parse(&url)
-                .map_err(|err| KeyUrlParseError(format!("unable to parse {url} as URL: {err}")))?;
+            let url = Url::parse(&url).map_err(|err| {
+                KeyUrlParseError(format!("unable to parse {url} as URL: {err}"))
+            })?;
 
             Ok(url)
         }
@@ -906,12 +935,13 @@ pub mod sign {
                     return Err(SignError);
                 }
             };
-            let mut cryptographic_parameters = CryptographicParameters::default()
-                .with_hashing_algorithm(hashing_alg)
-                .with_cryptographic_algorithm(crypto_alg);
+            let mut cryptographic_parameters =
+                CryptographicParameters::default()
+                    .with_hashing_algorithm(hashing_alg)
+                    .with_cryptographic_algorithm(crypto_alg);
             if self.algorithm == SecurityAlgorithm::RSASHA256 {
-                cryptographic_parameters =
-                    cryptographic_parameters.with_padding_method(PaddingMethod::PKCS1_v1_5);
+                cryptographic_parameters = cryptographic_parameters
+                    .with_padding_method(PaddingMethod::PKCS1_v1_5);
             }
             let request = RequestPayload::Sign(
                 Some(UniqueIdentifier(self.private_key_id.clone())),
@@ -922,7 +952,10 @@ pub mod sign {
         }
 
         /// Process a KMIP HSM signing operation response for this key pair.
-        fn sign_post(&self, res: ResponsePayload) -> Result<Signature, SignError> {
+        fn sign_post(
+            &self,
+            res: ResponsePayload,
+        ) -> Result<Signature, SignError> {
             trace!("Checking sign payload");
             let ResponsePayload::Sign(signed) = res else {
                 unreachable!();
@@ -976,7 +1009,9 @@ pub mod sign {
                             [0, 0x80..=0xFF, ..] => &x[1..],
                             // Badly formatted signature.
                             [0, _, ..] => {
-                                error!("Leading zeros in ECDSA signature integer");
+                                error!(
+                                    "Leading zeros in ECDSA signature integer"
+                                );
                                 return Err(SignError);
                             }
                             x => x,
@@ -1103,7 +1138,9 @@ pub mod sign {
             // Note: Fortanix DSM requires a name for at least the private
             // key.
             request::Attribute::Name(private_key_name),
-            request::Attribute::CryptographicUsageMask(CryptographicUsageMask::Sign),
+            request::Attribute::CryptographicUsageMask(
+                CryptographicUsageMask::Sign,
+            ),
         ];
         let pub_key_attrs = vec![
             // Krill supplies a name at creation time. Do we need to?
@@ -1113,7 +1150,9 @@ pub mod sign {
             // Krill does verification, do we need to? ODS doesn't.
             // Note: PyKMIP requires a Cryptographic Usage Mask for the public
             // key.
-            request::Attribute::CryptographicUsageMask(CryptographicUsageMask::Verify),
+            request::Attribute::CryptographicUsageMask(
+                CryptographicUsageMask::Verify,
+            ),
         ];
 
         // PyKMIP doesn't support CryptographicParameters so we cannot supply
@@ -1153,9 +1192,11 @@ pub mod sign {
                         ),
                     ))
                 } else {
-                    common_attrs.push(request::Attribute::CryptographicAlgorithm(
-                        CryptographicAlgorithm::RSA,
-                    ));
+                    common_attrs.push(
+                        request::Attribute::CryptographicAlgorithm(
+                            CryptographicAlgorithm::RSA,
+                        ),
+                    );
                     common_attrs.push(request::Attribute::CryptographicLength(
                         bits.try_into().unwrap(),
                     ));
@@ -1171,20 +1212,25 @@ pub mod sign {
                 //   supported asymmetric key algorithm."
 
                 if use_cryptographic_params {
-                    common_attrs.push(request::Attribute::CryptographicParameters(
-                        CryptographicParameters::default().with_digital_signature_algorithm(
-                            DigitalSignatureAlgorithm::ECDSAWithSHA256,
+                    common_attrs.push(
+                        request::Attribute::CryptographicParameters(
+                            CryptographicParameters::default()
+                                .with_digital_signature_algorithm(
+                                    DigitalSignatureAlgorithm::ECDSAWithSHA256,
+                                ),
                         ),
-                    ))
+                    )
                 } else {
                     // RFC 8624 3.1 DNSSEC Signing: MUST
                     // https://docs.oasis-open.org/kmip/spec/v1.2/os/kmip-spec-v1.2-os.html#_Toc395776503
                     //   "For ECDSA, ECDH, and ECMQV algorithms, Cryptographic
                     //    Length corresponds to the bit length of parameter
                     //    Q."
-                    common_attrs.push(request::Attribute::CryptographicAlgorithm(
-                        CryptographicAlgorithm::ECDSA,
-                    ));
+                    common_attrs.push(
+                        request::Attribute::CryptographicAlgorithm(
+                            CryptographicAlgorithm::ECDSA,
+                        ),
+                    );
                     // ODS doesn't tell PKCS#11 a Q length. I have no idea
                     // what value we should put here, but as Q length is
                     // optional let's try not passing it.
@@ -1196,7 +1242,8 @@ pub mod sign {
                     // error "Unsupported length for ECC key". When using 256
                     // the Fortanix UI shows the key as type EC with curve
                     // NistP256 so that seems good.
-                    common_attrs.push(request::Attribute::CryptographicLength(256));
+                    common_attrs
+                        .push(request::Attribute::CryptographicLength(256));
                 }
             }
             GenerateParams::EcdsaP384Sha384 => {
@@ -1288,7 +1335,8 @@ pub mod sign {
                     conn_pool.server_id()
                 ))
             })?;
-            let request = RequestPayload::Activate(Some(private_key_unique_identifier));
+            let request =
+                RequestPayload::Activate(Some(private_key_unique_identifier));
 
             // Execute the request and capture the response
             trace!("Activating KMIP key...");
@@ -1310,7 +1358,8 @@ pub mod sign {
             let ResponsePayload::Activate(_) = response else {
                 error!("KMIP request failed: Wrong response type received!");
                 return Err(GenerateError::Kmip(
-                    "Unable to parse KMIP response: payload should be Activate".to_string(),
+                    "Unable to parse KMIP response: payload should be Activate"
+                        .to_string(),
                 ));
             };
         }
@@ -1324,7 +1373,10 @@ pub mod sign {
     ///
     /// As a KMIP key cannot be destroyed if it is active, this function first
     /// attempts to revoke the key and then destroy it.
-    pub fn destroy(key_id: &str, conn_pool: SyncConnPool) -> Result<(), DestroyError> {
+    pub fn destroy(
+        key_id: &str,
+        conn_pool: SyncConnPool,
+    ) -> Result<(), DestroyError> {
         let client = conn_pool.get().map_err(|err| {
             DestroyError::Kmip(format!(
                 "Key destruction failed: Cannot connect to KMIP server {}: {err}",
@@ -1519,12 +1571,18 @@ mod tests {
     fn pykmip_connect() {
         init_logging();
         let mut cert_bytes = Vec::new();
-        let file = File::open("/home/ximon/docker_data/pykmip/pykmip-data/selfsigned.crt").unwrap();
+        let file = File::open(
+            "/home/ximon/docker_data/pykmip/pykmip-data/selfsigned.crt",
+        )
+        .unwrap();
         let mut reader = BufReader::new(file);
         reader.read_to_end(&mut cert_bytes).unwrap();
 
         let mut key_bytes = Vec::new();
-        let file = File::open("/home/ximon/docker_data/pykmip/pykmip-data/selfsigned.key").unwrap();
+        let file = File::open(
+            "/home/ximon/docker_data/pykmip/pykmip-data/selfsigned.key",
+        )
+        .unwrap();
         let mut reader = BufReader::new(file);
         reader.read_to_end(&mut key_bytes).unwrap();
 
