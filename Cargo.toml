@@ -1,0 +1,37 @@
+[package]
+name = "domain-kmip"
+description = "KMIP HSM signing support for `domain`."
+authors = ["NLnet Labs <dns-team@nlnetlabs.nl>"]
+version = "0.0.1"
+
+edition = "2024"
+# The MSRV is at least 4 versions behind stable (about half a year).
+rust-version = "1.87.0"
+
+license = "BSD-3-Clause"
+readme = "README.md"
+
+keywords = ["DNS", "domain", "KMIP"]
+homepage = "https://nlnetlabs.nl/projects/domain/"
+repository = "https://github.com/nlnetlabs/domain-kmip/"
+
+
+[dependencies]
+
+# This crate provides extensions to 'domain'.
+[dependencies.domain]
+# TODO: Convert to a regular 'version' spec.
+git = "https://github.com/NLnetLabs/domain.git"
+branch = "main"
+
+# This crate needs some way to interact with KMIP servers.  This requires
+# connecting to them using an appropriate transport protocol and understanding
+# the wire format.
+#
+# - 'kmip-protocol' provides protocol definitions and high-level client/server
+#   functionality.  It is maintained by us (NLnet Labs).
+[dependencies.kmip]
+package = "kmip-protocol"
+# TODO: Convert to a regular 'version' spec.
+git = "https://github.com/NLnetLabs/kmip-protocol.git"
+branch = "next"
