@@ -79,3 +79,8 @@ features = ["v4"]
 [dev-dependencies.tracing-subscriber]
 version = "0.3.19"
 features = ["env-filter"]
+
+# NOTE: 'tracing-subscriber' transitively introduces 'lazy_static' with a low
+# version specifier, resulting in compilation failures.
+[dev-dependencies.lazy_static]
+version = "1.5.0"

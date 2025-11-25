@@ -110,6 +110,7 @@ dependencies = [
  "bcder",
  "domain",
  "kmip-protocol",
+ "lazy_static",
  "tracing",
  "tracing-subscriber",
  "url",
