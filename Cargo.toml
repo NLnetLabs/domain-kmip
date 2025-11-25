@@ -23,6 +23,8 @@ repository = "https://github.com/nlnetlabs/domain-kmip/"
 # TODO: Convert to a regular 'version' spec.
 git = "https://github.com/NLnetLabs/domain.git"
 branch = "main"
+# TODO: Find a way to enable the 'crypto' module without Ring or OpenSSL.
+features = ["ring", "unstable-crypto-sign"]
 
 # This crate needs some way to interact with KMIP servers.  This requires
 # connecting to them using an appropriate transport protocol and understanding
@@ -35,3 +37,45 @@ package = "kmip-protocol"
 # TODO: Convert to a regular 'version' spec.
 git = "https://github.com/NLnetLabs/kmip-protocol.git"
 branch = "next"
+# TODO: Support asynchronous operation?
+features = ["tls-with-rustls"]
+
+# KMIP specifies the format for cryptographic data, often relying on DER
+# based formats.  DNS sometimes uses different formats, thereby requiring the
+# re-encoding of these signatures.
+#
+# - 'bcder' provides a simple DER encoder and decoder.  It is maintained by us
+#   (NLnet Labs).
+#
+# TODO: Perhaps try hard-coding the relevant DER decoding?
+# TODO: Should 'kmip-protocol' provide this decoding support for us?
+[dependencies.bcder]
+version = "0.7.0"
+
+# This crate expresses KMIP key information as a URL for simplicity.  It needs
+# some way to conformantly serialize and deserialize URLs.
+#
+# - 'url' is a popular Rust library for handling URLs.
+#
+#   TODO: Maintenance status?
+[dependencies.url]
+version = "2.5.4"
+
+# TODO: Does this crate really need tracing?  Or is it an artefact of the
+# need for quick debugging?
+[dependencies.tracing]
+version = "0.1.40"
+
+# TODO: Rely on 'kmip-protocol' to help us generate unique batch item IDs.
+# Each KMIP connection could hold a 64-bit counter to assure uniqueness.
+[dependencies.uuid]
+version = "1.18.0"
+features = ["v4"]
+
+
+[dev-dependencies]
+
+# TODO: See '[dependencies.tracing]'.
+[dev-dependencies.tracing-subscriber]
+version = "0.3.19"
+features = ["env-filter"]

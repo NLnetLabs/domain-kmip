@@ -18,7 +18,7 @@ use kmip::{
 use tracing::{debug, error};
 use url::Url;
 
-use crate::{
+use domain::{
     base::iana::SecurityAlgorithm,
     crypto::{common::rsa_encode, sign::SignError},
     rdata::Dnskey,
@@ -442,7 +442,7 @@ impl PublicKey {
 
                         let n = modulus.as_slice();
                         let e = public_exponent.as_slice();
-                        crate::crypto::common::rsa_encode(e, n)
+                        domain::crypto::common::rsa_encode(e, n)
                     }
 
                     (SecurityAlgorithm::RSASHA1, KeyFormatType::Raw)
@@ -490,7 +490,7 @@ impl PublicKey {
 
                         let n = modulus.as_slice();
                         let e = public_exponent.as_slice();
-                        crate::crypto::common::rsa_encode(e, n)
+                        domain::crypto::common::rsa_encode(e, n)
                     }
 
                     (SecurityAlgorithm::ECDSAP256SHA256, KeyFormatType::Raw) => {
@@ -622,7 +622,6 @@ impl PublicKey {
 
 //============ sign ==========================================================
 
-#[cfg(feature = "unstable-crypto-sign")]
 /// Submodule for private keys and signing.
 pub mod sign {
     use std::boxed::Box;
@@ -641,18 +640,18 @@ pub mod sign {
         PublicKeyTemplateAttribute, RequestPayload,
     };
     use kmip::types::response::{CreateKeyPairResponsePayload, ResponsePayload};
-    use log::trace;
     use openssl::ecdsa::EcdsaSig;
-    use tracing::{debug, error};
+    use tracing::{debug, error, trace};
     use url::Url;
     use uuid::Uuid;
 
-    use crate::base::iana::SecurityAlgorithm;
-    use crate::crypto::common::DigestType;
-    use crate::crypto::kmip::{DestroyError, GenerateError, KeyUrl, KeyUrlParseError, PublicKey};
-    use crate::crypto::sign::{GenerateParams, SignError, SignRaw, Signature};
-    use crate::rdata::Dnskey;
-    use crate::utils::base16;
+    use domain::base::iana::SecurityAlgorithm;
+    use domain::crypto::common::DigestType;
+    use domain::crypto::sign::{GenerateParams, SignError, SignRaw, Signature};
+    use domain::rdata::Dnskey;
+    use domain::utils::base16;
+
+    use super::{DestroyError, GenerateError, KeyUrl, KeyUrlParseError, PublicKey};
 
     //----------- KeyPair ----------------------------------------------------
 
@@ -923,7 +922,7 @@ pub mod sign {
 
         /// Process a KMIP HSM signing operation response for this key pair.
         fn sign_post(&self, res: ResponsePayload) -> Result<Signature, SignError> {
-            tracing::trace!("Checking sign payload");
+            trace!("Checking sign payload");
             let ResponsePayload::Sign(signed) = res else {
                 unreachable!();
             };
@@ -1217,7 +1216,7 @@ pub mod sign {
             );
             GenerateError::Kmip(err.to_string())
         })?;
-        tracing::trace!("Key generation operation complete");
+        trace!("Key generation operation complete");
 
         // Drop the KMIP client so that it will be returned to the pool and
         // thus be available below when KeyPair::new() is invoked and tries to
@@ -1237,7 +1236,7 @@ pub mod sign {
             public_key_unique_identifier,
         } = payload;
 
-        tracing::trace!("Creating KeyPair with DNSKEY");
+        trace!("Creating KeyPair with DNSKEY");
 
         let key_pair = KeyPair::from_metadata(
             algorithm,
@@ -1260,7 +1259,7 @@ pub mod sign {
             let request = RequestPayload::Activate(Some(private_key_unique_identifier));
 
             // Execute the request and capture the response
-            tracing::trace!("Activating KMIP key...");
+            trace!("Activating KMIP key...");
             let response = client.do_request(request).map_err(|err| {
                 eprintln!("KMIP activate private key request failed: {err}");
                 eprintln!(
@@ -1273,7 +1272,7 @@ pub mod sign {
                 );
                 GenerateError::Kmip(err.to_string())
             })?;
-            tracing::trace!("Activate operation complete");
+            trace!("Activate operation complete");
 
             // Process the successful response
             let ResponsePayload::Activate(_) = response else {
@@ -1475,9 +1474,21 @@ mod tests {
     use kmip::client::ConnectionSettings;
     use kmip::client::pool::ConnectionManager;
 
-    use crate::crypto::kmip::sign::generate;
-    use crate::crypto::sign::SignRaw;
-    use crate::logging::init_logging;
+    use domain::crypto::sign::SignRaw;
+
+    use super::sign::generate;
+
+    fn init_logging() {
+        use tracing_subscriber::EnvFilter;
+
+        tracing_subscriber::fmt()
+            .with_env_filter(EnvFilter::from_default_env())
+            .with_thread_ids(true)
+            .without_time()
+            // Useful sometimes:
+            // .with_span_events(tracing_subscriber::fmt::format::FmtSpan::NEW)
+            .init();
+    }
 
     #[test]
     #[ignore = "Requires running PyKMIP"]
@@ -1539,7 +1550,7 @@ mod tests {
         let res = generate(
             pub_key_name,
             pri_key_name,
-            crate::crypto::sign::GenerateParams::RsaSha256 { bits: 2048 },
+            domain::crypto::sign::GenerateParams::RsaSha256 { bits: 2048 },
             // crate::crypto::sign::GenerateParams::EcdsaP256Sha256,
             256,
             pool,
@@ -1611,7 +1622,7 @@ mod tests {
         let res = generate(
             pub_key_name,
             pri_key_name,
-            crate::crypto::sign::GenerateParams::RsaSha256 { bits: 1024 },
+            domain::crypto::sign::GenerateParams::RsaSha256 { bits: 1024 },
             // crate::crypto::sign::GenerateParams::EcdsaP256Sha256,
             256,
             pool,
