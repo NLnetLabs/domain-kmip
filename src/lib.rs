@@ -25,7 +25,9 @@ use domain::{
 
 pub use kmip::client::{ClientCertificate, ConnectionSettings};
 
+// Re-export dependencies
 pub use domain;
+pub use kmip;
 
 //------------ Constants -----------------------------------------------------
 
