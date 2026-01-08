@@ -90,7 +90,7 @@ dependencies = [
 [[package]]
 name = "domain"
 version = "0.11.1"
-source = "git+https://github.com/NLnetLabs/domain.git?branch=main#6c4eb26caaae72347113fc5f9e7375ef7e820867"
+source = "git+https://github.com/NLnetLabs/domain.git?branch=main#03767469006f6a56fa1201b4bc543ea731b82682"
 dependencies = [
  "bumpalo",
  "bytes",
@@ -120,7 +120,7 @@ dependencies = [
 [[package]]
 name = "domain-macros"
 version = "0.11.1"
-source = "git+https://github.com/NLnetLabs/domain.git?branch=main#6c4eb26caaae72347113fc5f9e7375ef7e820867"
+source = "git+https://github.com/NLnetLabs/domain.git?branch=main#03767469006f6a56fa1201b4bc543ea731b82682"
 dependencies = [
  "proc-macro2",
  "quote",

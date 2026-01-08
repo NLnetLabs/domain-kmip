@@ -1242,9 +1242,6 @@ pub mod sign {
                     ));
                 }
             }
-            GenerateParams::RsaSha512 { .. } => {
-                return Err(GenerateError::UnsupportedAlgorithm);
-            }
             GenerateParams::EcdsaP256Sha256 => {
                 // PyKMIP doesn't support ECDSA:
                 //   "Operation CreateKeyPair failed: The cryptographic
@@ -1286,18 +1283,7 @@ pub mod sign {
                         .push(request::Attribute::CryptographicLength(256));
                 }
             }
-            GenerateParams::EcdsaP384Sha384 => {
-                // RFC 8624 3.1 DNSSEC Signing: MAY
-                // TODO
-                return Err(GenerateError::UnsupportedAlgorithm);
-            }
-            GenerateParams::Ed25519 => {
-                // RFC 8624 3.1 DNSSEC Signing: RECOMMENDED
-                // TODO
-                return Err(GenerateError::UnsupportedAlgorithm);
-            }
-            GenerateParams::Ed448 => {
-                // RFC 8624 3.1 DNSSEC Signing: MAY
+            _ => {
                 // TODO
                 return Err(GenerateError::UnsupportedAlgorithm);
             }
