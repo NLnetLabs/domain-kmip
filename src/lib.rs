@@ -1079,7 +1079,7 @@ pub mod sign {
 
             let mut signature = Box::new([0u8; 64]);
             signature[32 - r.len()..32].copy_from_slice(r);
-            signature[64 - r.len()..64].copy_from_slice(s);
+            signature[64 - s.len()..64].copy_from_slice(s);
             Ok(signature)
         }
     }
