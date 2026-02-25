@@ -401,7 +401,7 @@ impl PublicKey {
             }
 
             KeyMaterial::TransparentRSAPublicKey(
-                // Nameshed-HSM-Relay
+                // cascade-hsm-bridge
                 TransparentRSAPublicKey {
                     modulus,
                     public_exponent,
