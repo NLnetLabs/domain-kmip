@@ -6,7 +6,7 @@ version = "0.0.1"
 
 edition = "2024"
 # The MSRV is at least 4 versions behind stable (about half a year).
-rust-version = "1.85.0"
+rust-version = "1.88.0"
 
 license = "BSD-3-Clause"
 readme = "README.md"
@@ -20,7 +20,7 @@ repository = "https://github.com/nlnetlabs/domain-kmip/"
 
 # This crate provides extensions to 'domain'.
 [dependencies.domain]
-version = "0.11.1"
+version = "0.12.0"
 git = "https://github.com/NLnetLabs/domain.git"
 branch = "main"
 # TODO: Find a way to enable the 'crypto' module without Ring or OpenSSL.
