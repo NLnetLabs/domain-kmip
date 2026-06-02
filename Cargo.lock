@@ -106,8 +106,9 @@ dependencies = [
 
 [[package]]
 name = "domain"
-version = "0.12.0"
-source = "git+https://github.com/NLnetLabs/domain.git?branch=main#6c3f0410780a1f77e9aebe113ecfd0290174736d"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8c469892dddfeff64ecfdbc64cf059c77fb0decaeccd4d5d484394bdd6312bac"
 dependencies = [
  "bumpalo",
  "bytes",
@@ -136,8 +137,9 @@ dependencies = [
 
 [[package]]
 name = "domain-macros"
-version = "0.12.0"
-source = "git+https://github.com/NLnetLabs/domain.git?branch=main#6c3f0410780a1f77e9aebe113ecfd0290174736d"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6fef7ef74e413e36d5364db163ca577ccb56f2f74377705d5f920ee3e1544127"
 dependencies = [
  "proc-macro2",
  "quote",
