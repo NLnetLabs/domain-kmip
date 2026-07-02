@@ -20,7 +20,8 @@ repository = "https://github.com/nlnetlabs/domain-kmip/"
 
 # This crate provides extensions to 'domain'.
 [dependencies.domain]
-version = "0.12.1"
+git = "https://github.com/NLnetLabs/domain"
+branch = "main"
 # TODO: Find a way to enable the 'crypto' module without Ring or OpenSSL.
 features = ["ring", "unstable-crypto-sign"]
 
