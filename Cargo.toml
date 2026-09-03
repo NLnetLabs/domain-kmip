@@ -20,10 +20,13 @@ repository = "https://github.com/nlnetlabs/domain-kmip/"
 
 # This crate provides extensions to 'domain'.
 [dependencies.domain]
+package = "domain"
+version = "0.12.2"
 git = "https://github.com/NLnetLabs/domain"
 branch = "main"
 # TODO: Find a way to enable the 'crypto' module without Ring or OpenSSL.
 features = ["ring", "unstable-crypto-sign"]
+#path = "../domain4"
 
 # This crate needs some way to interact with KMIP servers.  This requires
 # connecting to them using an appropriate transport protocol and understanding
@@ -34,8 +37,9 @@ features = ["ring", "unstable-crypto-sign"]
 [dependencies.kmip]
 package = "kmip-protocol"
 # TODO: Convert to a regular 'version' spec.
-git = "https://github.com/NLnetLabs/kmip-protocol.git"
-branch = "next"
+#git = "https://github.com/NLnetLabs/kmip-protocol.git" 
+#branch = "next"
+path = "../kmip-protocol2"
 # TODO: Support asynchronous operation?
 features = ["tls-with-rustls"]
 
