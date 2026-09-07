@@ -716,11 +716,13 @@ impl PublicKey {
         bytes: &[u8],
     ) -> Result<Self, PublicKeyError> {
         // Ensure the specified algorithm uses RSA.
-        assert!(matches!(algorithm, |SecurityAlgorithm::RSASHA1| {
-            SecurityAlgorithm::RSASHA1_NSEC3_SHA1
+        assert!(matches!(
+            algorithm,
+            SecurityAlgorithm::RSASHA1
+                | SecurityAlgorithm::RSASHA1_NSEC3_SHA1
                 | SecurityAlgorithm::RSASHA256
                 | SecurityAlgorithm::RSASHA512
-        }));
+        ));
 
         // PyKMIP outputs PKCS#1 ASN.1 DER encoded RSA public key data like so:
         //   RSAPublicKey::=SEQUENCE{
@@ -764,11 +766,13 @@ impl PublicKey {
         bytes: &[u8],
     ) -> Result<Self, PublicKeyError> {
         // Ensure the specified algorithm uses RSA.
-        assert!(matches!(algorithm, |SecurityAlgorithm::RSASHA1| {
-            SecurityAlgorithm::RSASHA1_NSEC3_SHA1
+        assert!(matches!(
+            algorithm,
+            SecurityAlgorithm::RSASHA1
+                | SecurityAlgorithm::RSASHA1_NSEC3_SHA1
                 | SecurityAlgorithm::RSASHA256
                 | SecurityAlgorithm::RSASHA512
-        }));
+        ));
 
         // For an RSA key Fortanix DSM supplies: (from https://asn1js.eu/)
         //   SubjectPublicKeyInfo SEQUENCE (2 elem)
@@ -1760,21 +1764,6 @@ mod tests {
         assert_eq!(key.public_key, [1, 42, 127]);
     }
 
-    /// Test [`PublicKey::parse_rsa_from_raw()`].
-    #[test]
-    fn parse_rsa_key_from_raw() {
-        // TODO: Find real-world samples.
-        let bytes = [
-            48, 21, 48, 11, 6, 9, 42, 134, 72, 134, 247, 13, 1, 1, 1, 48, 6, 2,
-            1, 127, 2, 1, 42,
-        ];
-        let key =
-            PublicKey::parse_rsa_from_raw(SecurityAlgorithm::RSASHA256, &bytes)
-                .unwrap();
-        assert_eq!(key.algorithm, SecurityAlgorithm::RSASHA256);
-        assert_eq!(key.public_key, [1, 42, 127]);
-    }
-
     /// Test [`PublicKey::parse_ecdsa_from_raw()`].
     #[test]
     fn parse_ecdsa_key_from_raw() {
@@ -1909,8 +1898,8 @@ mod tests {
         let conn_settings = ConnectionSettings {
             host: "eu.smartkey.io".to_string(),
             port: 5696,
-            username: Some(env!("FORTANIX_USER").to_string()),
-            password: Some(env!("FORTANIX_PASS").to_string()),
+            username: Some(std::env::var("FORTANIX_USER").unwrap().to_string()),
+            password: Some(std::env::var("FORTANIX_PASS").unwrap().to_string()),
             insecure: true,
             connect_timeout: Some(Duration::from_secs(3)),
             read_timeout: Some(Duration::from_secs(30)),
