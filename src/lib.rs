@@ -1024,9 +1024,7 @@ pub mod sign {
         AttributeIndex, AttributeName, CryptographicDomainParameters, CryptographicParameters, CryptographicUsageMask, Data, UniqueBatchItemID, UniqueIdentifier
     };
     use kmip::types::request::{
-        self, Attribute, BatchItem, CommonTemplateAttribute,
-        PrivateKeyTemplateAttribute, PublicKeyTemplateAttribute,
-        RequestPayload,
+        self, Attribute, Attribute2, BatchItem, CommonAttributes, CommonTemplateAttribute, PrivateKeyAttributes, PrivateKeyTemplateAttribute, PublicKeyAttributes, PublicKeyTemplateAttribute, RequestPayload
     };
     use kmip::types::response::{
         CreateKeyPairResponsePayload, ResponsePayload,
@@ -1431,22 +1429,26 @@ use super::{
             // Krill supplies a name at creation time. Do we need to?
             // Note: Fortanix DSM requires a name for at least the private
             // key.
-            request::Attribute::Name(private_key_name),
-            request::Attribute::CryptographicUsageMask(
-                CryptographicUsageMask::Sign,
-            ),
+            // request::Attribute::Name(private_key_name),
+            // request::Attribute::CryptographicUsageMask(
+            //     CryptographicUsageMask::Sign,
+            // ),
+            request::Attribute2::Name(request::Name(kmip::types::common::NameValue(private_key_name), kmip::types::common::NameType::UninterpretedTextString)),
+            request::Attribute2::CryptographicUsageMask(CryptographicUsageMask::Sign)
         ];
         let pub_key_attrs = vec![
             // Krill supplies a name at creation time. Do we need to?
             // Note: Fortanix DSM requires a name for at least the private
             // key.
-            request::Attribute::Name(public_key_name),
+            // request::Attribute::Name(public_key_name),
             // Krill does verification, do we need to? ODS doesn't.
             // Note: PyKMIP requires a Cryptographic Usage Mask for the public
             // key.
-            request::Attribute::CryptographicUsageMask(
-                CryptographicUsageMask::Verify,
-            ),
+            // request::Attribute::CryptographicUsageMask(
+            //     CryptographicUsageMask::Verify,
+            // ),
+            request::Attribute2::Name(request::Name(kmip::types::common::NameValue(public_key_name), kmip::types::common::NameType::UninterpretedTextString)),
+            request::Attribute2::CryptographicUsageMask(CryptographicUsageMask::Verify)
         ];
 
         // PyKMIP doesn't support CryptographicParameters so we cannot supply
@@ -1473,9 +1475,10 @@ use super::{
         };
 
         common_attrs.push(
-            Attribute::CryptographicAlgorithm(
-                alg.kmip_crypto_alg
-            ),
+            // Attribute::CryptographicAlgorithm(
+            //     alg.kmip_crypto_alg
+            // ),
+            Attribute2::CryptographicAlgorithm(alg.kmip_crypto_alg)
         );
 
         // Use the variable number of bits supplied by the caller if available,
@@ -1488,25 +1491,26 @@ use super::{
                     return Err(GenerateError::UnsupportedAlgorithm);
                 }
             }
-            common_attrs.push(Attribute::CryptographicLength(
-                len.try_into().unwrap(),
-            ));
+            // common_attrs.push(Attribute::CryptographicLength(
+            //     len.try_into().unwrap(),
+            // ));
+            common_attrs.push(Attribute2::CryptographicLength(kmip::types::common::CryptographicLength(len.try_into().unwrap())));
         }
 
         if let Some(dsa) = alg.kmip_dsa {
-            common_attrs.push(Attribute::CryptographicParameters(
-                CryptographicParameters::default().with_digital_signature_algorithm(dsa)
-            ));
+            // common_attrs.push(Attribute::CryptographicParameters(
+            //     CryptographicParameters::default().with_digital_signature_algorithm(dsa)
+            // ));
         }
 
         if let Some(curve) = alg.elliptic_curve {
-            common_attrs.push(Attribute(
-                AttributeName("Cryptographic Domain Parameters".into()),
-                Option::<AttributeIndex>::None,
-                CryptographicDomainParameters::default()
-                    .with_recommended_curve(curve.kmip_recommend_curve)
-                    .into(),
-            ));
+            // common_attrs.push(Attribute(
+            //     AttributeName("Cryptographic Domain Parameters".into()),
+            //     Option::<AttributeIndex>::None,
+            //     CryptographicDomainParameters::default()
+            //         .with_recommended_curve(curve.kmip_recommend_curve)
+            //         .into(),
+            // ));
         }
 
         if activate_on_create {
@@ -1519,13 +1523,13 @@ use super::{
                 .unwrap()
                 .as_secs();
 
-            common_attrs.push(Attribute::ActivationDate(time_now));
+            // common_attrs.push(Attribute::ActivationDate(time_now));
         }
 
-        let request = RequestPayload::CreateKeyPair(
-            Some(CommonTemplateAttribute::new(common_attrs)),
-            Some(PrivateKeyTemplateAttribute::new(priv_key_attrs)),
-            Some(PublicKeyTemplateAttribute::new(pub_key_attrs)),
+        let request = RequestPayload::CreateKeyPair2(
+            Some(CommonAttributes(common_attrs)),
+            Some(PrivateKeyAttributes(priv_key_attrs)),
+            Some(PublicKeyAttributes(pub_key_attrs)),
         );
 
         // Execute the request and capture the response
