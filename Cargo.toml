@@ -34,8 +34,7 @@ features = ["ring", "unstable-crypto-sign"]
 #
 # - 'kmip-protocol' provides protocol definitions and high-level client/server
 #   functionality.  It is maintained by us (NLnet Labs).
-[dependencies.kmip]
-package = "kmip-protocol"
+[dependencies.kmip-protocol]
 # TODO: Convert to a regular 'version' spec.
 #git = "https://github.com/NLnetLabs/kmip-protocol.git" 
 #branch = "next"
