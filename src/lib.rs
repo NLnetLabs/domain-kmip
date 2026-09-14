@@ -235,7 +235,7 @@ fn parse_ecdsa_sig_from_x962<const LEN: usize>(
             })
         })
         .map_err(|err| {
-            error!("Unable to parse DER encoded PKCS#1 RSAPublicKey: {err}");
+            error!("Unable to parse DER encoded X9.62 ASN.1 signature: {err}");
             SignError
         })?;
     let (mut r, mut s) = (r.as_slice(), s.as_slice());
@@ -258,7 +258,11 @@ fn parse_ecdsa_sig_from_x962<const LEN: usize>(
         };
 
         if x.len() > half_len {
-            error!("Overly long ECDSA signature integer");
+            error!(
+                "Overly long ECDSA signature integer: {} > {}",
+                x.len(),
+                half_len
+            );
             return Err(SignError);
         }
     }
