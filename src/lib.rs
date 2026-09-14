@@ -175,7 +175,7 @@ const ALG_ECDSAP384SHA384: AlgorithmInfo = AlgorithmInfo {
         kmip_recommend_curve: RecommendedCurve::P_384,
     }),
     sig_parser: |sig| {
-        Ok(Signature::EcdsaP256Sha256(parse_ecdsa_sig_from_x962(&sig)?))
+        Ok(Signature::EcdsaP384Sha384(parse_ecdsa_sig_from_x962(&sig)?))
     },
 };
 
