@@ -491,6 +491,7 @@ dependencies = [
 [[package]]
 name = "kmip-protocol"
 version = "0.5.1-dev"
+source = "git+https://github.com/NLnetLabs/kmip-protocol.git?branch=support-sni-name#e2bf471965eac34e332cac7103bf1d8b385ce0b4"
 dependencies = [
  "async-trait",
  "bitflags 2.13.1",

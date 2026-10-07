@@ -33,9 +33,8 @@ features = ["ring", "unstable-crypto-sign"]
 #   functionality.  It is maintained by us (NLnet Labs).
 [dependencies.kmip-protocol]
 # TODO: Convert to a regular 'version' spec.
-#git = "https://github.com/NLnetLabs/kmip-protocol.git" 
-#branch = "add-server-functionality"
-path = "../kmip-protocol3"
+git = "https://github.com/NLnetLabs/kmip-protocol.git" 
+branch = "support-sni-name"
 # Disable the default features so that the aws-lc-rs crypto provider isn't
 # forced on our users but rather let them choose ring or aws-lc-rs.
 default-features = false
