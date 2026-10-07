@@ -2,8 +2,6 @@
 
 use core::fmt;
 
-use domain::base::iana::SecurityAlgorithm;
-
 /// An error occurred while generating a key pair with a KMIP server.
 #[derive(Clone, Debug)]
 pub enum GenerateError {
@@ -95,15 +93,8 @@ impl From<String> for KeyUrlParseError {
 /// An error occurred while retrieving a KMIP public key.
 #[derive(Clone, Debug)]
 pub enum PublicKeyError {
-    /// The cryptographic algorithm of the KMIP key does not match the
-    /// specified DNSSEC algorithm.
-    AlgorithmMismatch {
-        /// The DNSSEC algorithm that was expected.
-        expected: SecurityAlgorithm,
-
-        /// The type of key data received from the KMIP server.
-        actual: String,
-    },
+    /// The received key material is not in the expected form.
+    InvalidKeyMaterial(String),
 
     /// A problem occurred while communicating with the KMIP server.
     Kmip(String),
@@ -114,11 +105,8 @@ pub enum PublicKeyError {
 impl fmt::Display for PublicKeyError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::AlgorithmMismatch { expected, actual } => {
-                write!(
-                    f,
-                    "algorithm mismatch: expected {expected} but found {actual}"
-                )
+            Self::InvalidKeyMaterial(err) => {
+                write!(f, "invalid key material: {err}")
             }
             Self::Kmip(err) => {
                 write!(
@@ -136,8 +124,8 @@ impl std::error::Error for PublicKeyError {}
 
 //--- Conversions
 
-impl From<kmip_protocol::client::Error> for PublicKeyError {
-    fn from(err: kmip_protocol::client::Error) -> Self {
+impl From<kmip_protocol::net::NetError> for PublicKeyError {
+    fn from(err: kmip_protocol::net::NetError) -> Self {
         PublicKeyError::Kmip(err.to_string())
     }
 }

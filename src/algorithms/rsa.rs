@@ -1,7 +1,10 @@
 use bcder::{BitString, Oid};
 use domain::base::iana::SecurityAlgorithm;
 
-use crate::{error::PublicKeyError, oids::RSA_OID, public_key::PublicKey};
+use crate::{
+    algorithms::MapDerErr, error::PublicKeyError, oids::RSA_OID,
+    public_key::PublicKey,
+};
 
 /// Parse an RSA key encoded in the KMIP "X.509" format convention.
 ///
@@ -9,7 +12,7 @@ use crate::{error::PublicKeyError, oids::RSA_OID, public_key::PublicKey};
 ///
 /// Panics if the specified DNS security algorithm for the key does not use
 /// RSA.
-pub fn parse_rsa_from_x509(
+pub fn parse_x509(
     algorithm: SecurityAlgorithm,
     bytes: &[u8],
 ) -> Result<PublicKey, PublicKeyError> {
@@ -38,28 +41,28 @@ pub fn parse_rsa_from_x509(
                 .decode(bytes, |cons| {
                     cons.take_sequence(|cons| {
                         cons.take_sequence(|cons| {
-                            let algorithm = Oid::take_from(cons)?;
+                            let algorithm = Oid::take_from(cons).map_der_err(cons, "algorithm")?;
                             if algorithm != RSA_OID.bytes {
                                 return Err(cons.content_err(
                                     format!("Expected ASN.1 SubjectPublicKeyInfo with algorithm OID '{}' (id: {}, bytes: {:?}) but found: {:?}",
                                         RSA_OID.dot_name, RSA_OID.asn1_object_identifier, RSA_OID.bytes, algorithm)
                                 ));
                             }
-                            cons.take_null()
-                        })?;
-                        let bit_string = BitString::take_from(cons)?;
+                            cons.take_null().map_der_err(cons, "parameter")
+                        }).map_der_err(cons, "algorithm")?;
+                        let bit_string = BitString::take_from(cons).map_der_err(cons, "subjectPublicKey")?;
                         bcder::Mode::Der.decode(bit_string.octet_slice().unwrap(), |cons| {
                             cons.take_sequence(|cons| {
-                                let modulus = bcder::Unsigned::take_from(cons)?;
-                                let public_exponent = bcder::Unsigned::take_from(cons)?;
+                                let modulus = bcder::Unsigned::take_from(cons).map_der_err(cons, "modulus")?;
+                                let public_exponent = bcder::Unsigned::take_from(cons).map_der_err(cons, "public exponent")?;
                                 Ok((modulus, public_exponent))
-                            })
-                        })
+                            }).map_der_err(cons, "modulus exponent sequence")
+                        }).map_der_err(cons, "subjectPublicKey")
                     })
                 })
                 .map_err(|err| {
-                    kmip_protocol::client::Error::DeserializeError(format!(
-                        "Unable to parse raw RSASHA256 SubjectPublicKeyInfo: {err}"
+                    PublicKeyError::InvalidKeyMaterial(format!(
+                        "Unable to parse RSA X.509 SubjectPublicKeyInfo: {err}"
                     ))
                 })?;
 
@@ -73,13 +76,14 @@ pub fn parse_rsa_from_x509(
         public_key,
     })
 }
+
 /// Parse an RSA key encoded in the PKCS#1 format.
 ///
 /// # Panics
 ///
 /// Panics if the specified DNS security algorithm for the key does not use
 /// RSA.
-pub fn parse_rsa_from_pkcs1(
+pub fn parse_pkcs1(
     algorithm: SecurityAlgorithm,
     bytes: &[u8],
 ) -> Result<PublicKey, PublicKeyError> {
@@ -101,14 +105,17 @@ pub fn parse_rsa_from_pkcs1(
     let (modulus, public_exponent) = bcder::Mode::Der
         .decode(bytes, |cons| {
             cons.take_sequence(|cons| {
-                let modulus = bcder::Unsigned::take_from(cons)?;
-                let public_exponent = bcder::Unsigned::take_from(cons)?;
+                let modulus = bcder::Unsigned::take_from(cons)
+                    .map_der_err(cons, "modulus")?;
+                let public_exponent = bcder::Unsigned::take_from(cons)
+                    .map_der_err(cons, "public exponent")?;
                 Ok((modulus, public_exponent))
             })
+            .map_der_err(cons, "RSAPublicKey")
         })
         .map_err(|err| {
-            kmip_protocol::client::Error::DeserializeError(format!(
-                "Unable to parse DER encoded PKCS#1 RSAPublicKey: {err}"
+            PublicKeyError::InvalidKeyMaterial(format!(
+                "Unable to parse RSA PKCS#1 RSAPublicKey: {err}"
             ))
         })?;
 

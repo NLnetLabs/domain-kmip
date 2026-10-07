@@ -5,11 +5,13 @@ use domain::{
 use tracing::error;
 
 use crate::{
-    algorithms::get_alg_info, error::PublicKeyError, public_key::PublicKey,
+    algorithms::{MapDerErr, get_alg_info},
+    error::PublicKeyError,
+    public_key::PublicKey,
 };
 
 /// Parse an ECDSA signature from the X9.62 ASN.1 DER format.
-pub fn parse_ecdsa_sig_from_x962<const LEN: usize>(
+pub fn parse_x962<const LEN: usize>(
     bytes: &[u8],
 ) -> Result<Box<[u8; LEN]>, SignError> {
     // ECDSA signature received from Fortanix DSM, decoded
@@ -27,16 +29,24 @@ pub fn parse_ecdsa_sig_from_x962<const LEN: usize>(
     //          :   }
     //
     // Where the two integer values are known as 'r' and 's'.
+    //
+    // See Ecdsa-Sig-Value in RFC 3279 section 2.2.3 "Elliptic Curve Digital
+    // Signature Algorithm" [1].
+    //
+    // [1]: https://www.rfc-editor.org/rfc/rfc3279.html#section-2.2.3
     let (r, s) = bcder::Mode::Der
         .decode(bytes, |cons| {
             cons.take_sequence(|cons| {
-                let r = bcder::Unsigned::take_from(cons)?;
-                let s = bcder::Unsigned::take_from(cons)?;
+                let r =
+                    bcder::Unsigned::take_from(cons).map_der_err(cons, "r")?;
+                let s =
+                    bcder::Unsigned::take_from(cons).map_der_err(cons, "s")?;
                 Ok((r, s))
             })
+            .map_der_err(cons, "sequence")
         })
         .map_err(|err| {
-            error!("Unable to parse DER encoded X9.62 ASN.1 signature: {err}");
+            error!("Unable to parse ECDSA X9.62 signature: {err}");
             SignError
         })?;
     let (mut r, mut s) = (r.as_slice(), s.as_slice());
@@ -52,7 +62,9 @@ pub fn parse_ecdsa_sig_from_x962<const LEN: usize>(
             [0, 0x80..=0xFF, ..] => &x[1..],
             // Badly formatted signature.
             [0, _, ..] => {
-                error!("Leading zeros in ECDSA signature integer");
+                error!(
+                    "Unable to parse ECDSA X9.62 signature: Leading zeros integer"
+                );
                 return Err(SignError);
             }
             x => x,
@@ -60,7 +72,7 @@ pub fn parse_ecdsa_sig_from_x962<const LEN: usize>(
 
         if x.len() > half_len {
             error!(
-                "Overly long ECDSA signature integer: {} > {}",
+                "Unable to parse ECDSA X9.62 signature: integer too long: {} > {}",
                 x.len(),
                 half_len
             );
@@ -79,21 +91,16 @@ pub fn parse_ecdsa_sig_from_x962<const LEN: usize>(
 ///
 /// Panics if the specified DNS security algorithm for the key does not use
 /// ECDSA.
-pub fn parse_ecdsa_key_from_x509(
+pub fn parse_x509(
     dns_algorithm: SecurityAlgorithm,
     bytes: &[u8],
 ) -> Result<PublicKey, PublicKeyError> {
-    // Ensure the specified algorithm uses ECDSA.
-    // TODO: Support ECDSAP384SHA384.
     assert!(matches!(
         dns_algorithm,
         SecurityAlgorithm::ECDSAP256SHA256 | SecurityAlgorithm::ECDSAP384SHA384
     ));
-    let alg_info = get_alg_info(dns_algorithm).ok_or_else(|| {
-        kmip_protocol::client::Error::DeserializeError(
-            format!("Unable to parse SubjectPublicKeyInfo for DNSSEC algorithm {dns_algorithm}: unsupported")
-        )
-    })?;
+    let alg_info =
+        get_alg_info(dns_algorithm).expect("Algorithm info must be available");
     let curve = alg_info.elliptic_curve.unwrap();
     let value_byte_len = alg_info.kmip_crypto_fixed_len.unwrap() / 8;
 
@@ -122,29 +129,29 @@ pub fn parse_ecdsa_key_from_x509(
         .decode(bytes, |cons| {
             cons.take_sequence(|cons| {
                 cons.take_sequence(|cons| {
-                    let algorithm = Oid::take_from(cons)?;
+                    let algorithm = Oid::take_from(cons).map_err(|err| cons.content_err(format!("DER sequence 'algorithm': {err}")))?;
                     if algorithm != alg_info.oid.bytes {
                         return Err(cons.content_err(
                             format!("Expected ASN.1 SubjectPublicKeyInfo with algorithm OID '{}' (id: {}, bytes: {:?}) but found: {:?}",
-                                alg_info.oid.dot_name, alg_info.oid.asn1_object_identifier, alg_info.oid.bytes, algorithm)
+                                alg_info.oid.dot_name, alg_info.oid.asn1_object_identifier, alg_info.oid.bytes, algorithm
+                            )
                         ));
                     }
-                    let named_curve = Oid::take_from(cons)?;
+                    let named_curve = Oid::take_from(cons).map_err(|err| cons.content_err(format!("DER oid 'parameters': {err}")))?;
                     if named_curve != curve.oid.bytes {
-                       return Err(cons.content_err(
-                           format!("Expected ASN.1 SubjectPublicKeyInfo with named curve OID '{}' (id: {}, bytes: {:?}, KMIP name: {}, alt name: {}) but found: {}",
-                           curve.oid.dot_name, curve.oid.asn1_object_identifier, curve.oid.bytes, curve.kmip_name, curve.alt_name, named_curve)
-                       ));
+                        return Err(cons.content_err(
+                            format!("Expected ASN.1 SubjectPublicKeyInfo with named curve OID '{}' (id: {}, bytes: {:?}, KMIP name: {}, alt name: {}) but found: {}",
+                                curve.oid.dot_name, curve.oid.asn1_object_identifier, curve.oid.bytes, curve.kmip_name, curve.alt_name, named_curve
+                            )
+                        ));
                     }
                     Ok(())
                 })?;
-                let bits = BitString::take_from(cons)?;
+                let bits = BitString::take_from(cons).map_err(|err| cons.content_err(format!("DER bit string 'subjectPublicKey': {err}")))?;
                 Ok(bits)
             })
         }).map_err(|err| {
-            kmip_protocol::client::Error::DeserializeError(
-                format!("Unable to parse SubjectPublicKeyInfo as {}: {err}", alg_info.oid.asn1_object_identifier)
-            )
+            PublicKeyError::InvalidKeyMaterial(format!("Unable to parse ECDSA X.509 SubjectPublicKeyInfo: {err}"))
         })?;
 
     // compression flag byte, X value, Y value
@@ -165,30 +172,30 @@ pub fn parse_ecdsa_key_from_x509(
     //    MUST be rejected if any other value is included
     //    in the first octet."
     let Some(octets) = bits.octet_slice() else {
-        return Err(kmip_protocol::client::Error::DeserializeError(format!(
-            "Unable to parse SubjectPublicKeyInfo {} (aka {}) curve bit string: missing octets",
+        return Err(PublicKeyError::InvalidKeyMaterial(format!(
+            "Unable to parse ECDSA X.509 SubjectPublicKeyInfo with curve {}/{} bit string: missing octets",
             curve.kmip_name, curve.alt_name
-        )))?;
+        )));
     };
 
     // Note: OpenDNSSEC doesn't support the compressed
     // form either.
     let compression_flag = octets[0];
     if compression_flag != 0x04 {
-        Err(kmip_protocol::client::Error::DeserializeError(format!(
-            "Unable to parse SubjectPublicKeyInfo {} (aka {}) curve bit string: unknown compression flag {compression_flag:?}",
+        return Err(PublicKeyError::InvalidKeyMaterial(format!(
+            "Unable to parse ECDSA X.509 SubjectPublicKeyInfo with curve {}/{} bit string: unsupported compression flag {compression_flag:?}",
             curve.kmip_name, curve.alt_name
-        )))?
+        )));
     }
 
     if octets.len() != num_expected_bytes as usize {
-        Err(kmip_protocol::client::Error::DeserializeError(format!(
-            "Unable to parse SubjectPublicKeyInfo {} (aka {}) curve bit string: expected [<compression flag byte>, <{value_byte_len}-byte X value>, <{value_byte_len}-byte Y value>]i but found: {} ({} bytes)",
+        return Err(PublicKeyError::InvalidKeyMaterial(format!(
+            "Unable to parse X.509 SubjectPublicKeyInfo curve {}/{} bit string: expected [<compression flag byte>, <{value_byte_len}-byte X value>, <{value_byte_len}-byte Y value>]i but found: {} ({} bytes)",
             curve.kmip_name,
             curve.alt_name,
             base16::encode_display(octets),
             octets.len()
-        )))?
+        )));
     }
 
     // Expect octet string to be X | Y (| denotes

@@ -1,7 +1,7 @@
 use std::string::{String, ToString};
 use std::vec::Vec;
 
-use kmip_protocol::client::pool::SyncConnPool;
+use kmip_protocol::net::sync_pool::ConnPool;
 use kmip_protocol::types::common::{
     CryptographicParameters, Data, UniqueBatchItemID, UniqueIdentifier,
 };
@@ -57,7 +57,7 @@ pub struct KeyPair {
     /// The connection pool for connecting to the KMIP server.
     // TODO: Should this be T that impl's a Connection trait, why should
     // it know that it's a pool rather than a single connection?
-    conn_pool: SyncConnPool,
+    conn_pool: ConnPool,
 
     /// Cached DNSKEY RR for the public key.
     dnskey: Dnskey<Vec<u8>>,
@@ -76,7 +76,7 @@ impl KeyPair {
         flags: u16,
         private_key_id: &str,
         public_key_id: &str,
-        conn_pool: SyncConnPool,
+        conn_pool: ConnPool,
     ) -> Result<Self, GenerateError> {
         let dnskey = PublicKey::for_key_id_and_dnssec_algorithm(
             public_key_id,
@@ -100,7 +100,7 @@ impl KeyPair {
     pub fn from_urls(
         priv_key_url: KeyUrl,
         pub_key_url: KeyUrl,
-        conn_pool: SyncConnPool,
+        conn_pool: ConnPool,
     ) -> Result<Self, GenerateError> {
         if priv_key_url.algorithm() != pub_key_url.algorithm() {
             Err(GenerateError::Kmip(format!(
@@ -163,7 +163,7 @@ impl KeyPair {
     }
 
     /// Get a reference to the KMIP HSM connection pool for this key pair.
-    pub fn conn_pool(&self) -> &SyncConnPool {
+    pub fn conn_pool(&self) -> &ConnPool {
         &self.conn_pool
     }
 }
@@ -202,7 +202,7 @@ impl KeyPair {
         queue: &mut SignQueue,
     ) -> Result<Vec<Signature>, SignError> {
         // Execute the request and capture the response.
-        let client = self.conn_pool.get().map_err(|err| {
+        let mut client = self.conn_pool.get().map_err(|err| {
             error!("Error while obtaining KMIP pool connection: {err}");
             SignError
         })?;
@@ -216,7 +216,7 @@ impl KeyPair {
         // This will block which could be problematic if executed from an
         // async task handler thread as it will block execution of other
         // tasks while waiting for the remote KMIP server to respond.
-        let res = client.do_requests(queue).map_err(|err| {
+        let res = client.do_request_batch(queue).map_err(|err| {
             error!("Error while sending KMIP request: {err}");
             SignError
         })?;
@@ -340,7 +340,7 @@ impl SignRaw for KeyPair {
         let request = self.sign_pre(data)?;
 
         // Execute the request and capture the response.
-        let client = self.conn_pool.get().map_err(|err| {
+        let mut client = self.conn_pool.get().map_err(|err| {
             error!("Error while obtaining KMIP pool connection: {err}");
             SignError
         })?;
@@ -348,10 +348,17 @@ impl SignRaw for KeyPair {
         // This will block which could be problematic if executed from an
         // async task handler thread as it will block execution of other
         // tasks while waiting for the remote KMIP server to respond.
-        let res = client.do_request(request).map_err(|err| {
-            error!("Error while sending KMIP request: {err}");
-            SignError
-        })?;
+        let res = client
+            .do_request_payload(request)
+            .map_err(|err| {
+                error!("Error while sending KMIP request: {err}");
+                SignError
+            })?
+            .try_into()
+            .map_err(|err| {
+                error!("Error while handling KMIP response: {err}");
+                SignError
+            })?;
 
         self.sign_post(res)
     }

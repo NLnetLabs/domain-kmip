@@ -83,10 +83,18 @@
 //! information.
 //!
 mod algorithms;
+mod error;
+mod key_pair;
+mod key_url;
 mod oids;
+mod public_key;
 
 #[cfg(test)]
 mod tests;
+
+pub use key_pair::{KeyPair, SignQueue};
+pub use key_url::KeyUrl;
+pub use public_key::PublicKey;
 
 /// Dependency re-exports
 pub mod dep {
@@ -94,13 +102,9 @@ pub mod dep {
     pub use kmip_protocol;
 }
 
-pub mod error;
-pub mod key_pair;
-pub mod key_url;
-pub mod public_key;
-
 use domain::crypto::sign::GenerateParams;
-use kmip_protocol::client::{Error, pool::SyncConnPool};
+use kmip_protocol::net::NetError;
+use kmip_protocol::net::sync_pool::ConnPool;
 use kmip_protocol::types::common::{
     AttributeIndex, AttributeName, CryptographicDomainParameters,
     CryptographicUsageMask,
@@ -116,7 +120,6 @@ use tracing::{debug, error, trace};
 
 use crate::algorithms::*;
 use crate::error::{DestroyError, GenerateError};
-use crate::key_pair::KeyPair;
 
 //----------- generate() -------------------------------------------------
 
@@ -126,7 +129,7 @@ pub fn generate(
     private_key_name: String,
     params: GenerateParams,
     flags: u16,
-    conn_pool: SyncConnPool,
+    conn_pool: ConnPool,
 ) -> Result<KeyPair, GenerateError> {
     let algorithm = params.algorithm();
 
@@ -162,13 +165,13 @@ pub fn generate(
         // Note: Fortanix DSM requires a name for at least the private
         // key.
         // Note: Securoys seems to be ignoring the given name.
-        Attribute::Name(private_key_name),
+        Attribute::Name(private_key_name.to_string()),
         Attribute::CryptographicUsageMask(CryptographicUsageMask::Sign),
     ];
     let pub_key_attrs = vec![
         // Note: Fortanix DSM requires a name for at least the private
         // key.
-        Attribute::Name(public_key_name),
+        Attribute::Name(public_key_name.to_string()),
         // Note: PyKMIP requires a Cryptographic Usage Mask for the public
         // key.
         Attribute::CryptographicUsageMask(CryptographicUsageMask::Verify),
@@ -212,16 +215,16 @@ pub fn generate(
     );
 
     // Execute the request and capture the response
-    let client = conn_pool.get().map_err(|err| {
+    let mut client = conn_pool.get().map_err(|err| {
         crate::error::GenerateError::Kmip(format!(
             "Key generation failed: Cannot connect to KMIP server {}: {err}",
             conn_pool.server_id()
         ))
     })?;
 
-    let mut response = client.do_request(request);
+    let mut response = client.do_request_payload(request);
 
-    if let Err(Error::ServerError(err)) = &response {
+    if let Err(NetError::ServerError(err)) = &response {
         // Some HSM KMIP implementations require Cryptographic Domain
         // Parameters (e.g. Securosys with ECDSA-SHA256 needs to know
         // which curve to use) while others have the opposite behaviour
@@ -230,7 +233,7 @@ pub fn generate(
         // Try first without, and if that fails, try with.
         if let Some(curve) = alg.elliptic_curve {
             debug!(
-                "Create Key Pair operation failed with error: {err}. Some HSMs require that the elliptic curve to use be specified explicity, retrying with an explicit elliptic curve"
+                "Create Key Pair operation failed: {err}. Retrying with an explicitly named elliptic curve."
             );
             common_attrs.push(Attribute(
                 AttributeName("Cryptographic Domain Parameters".into()),
@@ -246,14 +249,22 @@ pub fn generate(
             );
 
             // Execute the request and capture the response
-            response = client.do_request(request);
+            response = client.do_request_payload(request);
         }
     }
 
     let response = response.map_err(|err| {
-        error!("KMIP Create Key Pair request failed: {err}");
+        error!("Create Key Pair operation failed: {err}");
         GenerateError::Kmip(err.to_string())
     })?;
+
+    let response =
+        response
+            .try_into()
+            .map_err(|err: kmip_protocol::net::NetError| {
+                error!("Create Key Pair operation failed: {err}");
+                GenerateError::Kmip(err.to_string())
+            })?;
 
     trace!("Key generation operation complete");
 
@@ -264,11 +275,9 @@ pub fn generate(
 
     // Process the successful response
     let ResponsePayload::CreateKeyPair(payload) = response else {
-        error!("KMIP request failed: Wrong response type received!");
-        return Err(GenerateError::Kmip(
-            "Unable to parse KMIP response: payload should be CreateKeyPair"
-                .to_string(),
-        ));
+        return Err(GenerateError::Kmip(format!(
+            "Unable to parse response: expected CreateKeyPair payload but received {response}",
+        )));
     };
 
     let CreateKeyPairResponsePayload {
@@ -285,13 +294,17 @@ pub fn generate(
         public_key_unique_identifier.as_str(),
         conn_pool.clone(),
     )
-    .map_err(|err| GenerateError::Kmip(err.to_string()))?;
+    .map_err(|err| {
+        GenerateError::Kmip(format!(
+            "Generated key pair could not be located: {err}"
+        ))
+    })?;
 
     // Activate the key if not already, otherwise it cannot be used for
     // signing.
-    let client = conn_pool.get().map_err(|err| {
+    let mut client = conn_pool.get().map_err(|err| {
         GenerateError::Kmip(format!(
-            "Key generation failed: Cannot connect to KMIP server {}: {err}",
+            "Cannot connect to KMIP server {}: {err}",
             conn_pool.server_id()
         ))
     })?;
@@ -299,27 +312,22 @@ pub fn generate(
 
     // Execute the request and capture the response
     trace!("Activating KMIP key...");
-    let response = client.do_request(request).map_err(|err| {
-        eprintln!("KMIP activate private key request failed: {err}");
-        eprintln!(
-            "KMIP last request: {}",
-            client.last_req_diag_str().unwrap_or_default()
-        );
-        eprintln!(
-            "KMIP last response: {}",
-            client.last_res_diag_str().unwrap_or_default()
-        );
-        GenerateError::Kmip(err.to_string())
-    })?;
+    let response = client
+        .do_request_payload(request)
+        .map_err(|err| {
+            GenerateError::Kmip(format!("Key activation failed: {err}"))
+        })?
+        .try_into()
+        .map_err(|err| {
+            GenerateError::Kmip(format!("Key activation failed: {err}"))
+        })?;
     trace!("Activate operation complete");
 
     // Process the successful response
     let ResponsePayload::Activate(_) = response else {
-        error!("KMIP request failed: Wrong response type received!");
-        return Err(GenerateError::Kmip(
-            "Unable to parse KMIP response: payload should be Activate"
-                .to_string(),
-        ));
+        return Err(GenerateError::Kmip(format!(
+            "Unable to parse response: expected Activate payload but received {response}"
+        )));
     };
 
     Ok(key_pair)
@@ -331,11 +339,8 @@ pub fn generate(
 ///
 /// As a KMIP key cannot be destroyed if it is active, this function first
 /// attempts to revoke the key and then destroy it.
-pub fn destroy(
-    key_id: &str,
-    conn_pool: SyncConnPool,
-) -> Result<(), DestroyError> {
-    let client = conn_pool.get().map_err(|err| {
+pub fn destroy(key_id: &str, conn_pool: ConnPool) -> Result<(), DestroyError> {
+    let mut client = conn_pool.get().map_err(|err| {
         DestroyError::Kmip(format!(
             "Key destruction failed: Cannot connect to KMIP server {}: {err}",
             conn_pool.server_id()

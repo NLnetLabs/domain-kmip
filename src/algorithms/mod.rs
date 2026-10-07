@@ -1,6 +1,7 @@
 pub mod ecdsa;
 pub mod rsa;
 
+use bcder::decode::{Constructed, DecodeError, Source};
 use domain::{
     base::iana::SecurityAlgorithm,
     crypto::sign::{SignError, Signature},
@@ -10,7 +11,7 @@ use kmip_protocol::types::common::{
 };
 
 use crate::oids::*;
-use ecdsa::parse_ecdsa_sig_from_x962;
+use ecdsa::parse_x962;
 
 #[derive(Copy, Clone)]
 pub struct EllipticCurveInfo {
@@ -79,9 +80,7 @@ pub const ALG_ECDSAP256SHA256: AlgorithmInfo = AlgorithmInfo {
         alt_name: "SECP256R1",
         kmip_recommend_curve: RecommendedCurve::P_256,
     }),
-    sig_parser: |sig| {
-        Ok(Signature::EcdsaP256Sha256(parse_ecdsa_sig_from_x962(&sig)?))
-    },
+    sig_parser: |sig| Ok(Signature::EcdsaP256Sha256(parse_x962(&sig)?)),
 };
 
 pub const ALG_ECDSAP384SHA384: AlgorithmInfo = AlgorithmInfo {
@@ -97,9 +96,7 @@ pub const ALG_ECDSAP384SHA384: AlgorithmInfo = AlgorithmInfo {
         alt_name: "SECP384R1",
         kmip_recommend_curve: RecommendedCurve::P_384,
     }),
-    sig_parser: |sig| {
-        Ok(Signature::EcdsaP384Sha384(parse_ecdsa_sig_from_x962(&sig)?))
-    },
+    sig_parser: |sig| Ok(Signature::EcdsaP384Sha384(parse_x962(&sig)?)),
 };
 
 // const ALG_ED25519: AlgorithmInfo = AlgorithmInfo {
@@ -128,4 +125,29 @@ pub fn get_alg_info(alg: SecurityAlgorithm) -> Option<&'static AlgorithmInfo> {
         .iter()
         .find(|item| item.0 == alg)
         .map(|item| item.1)
+}
+
+pub trait MapDerErr<'a, S: Source, T> {
+    fn map_der_err(
+        self,
+        cons: &mut Constructed<'a, S>,
+        el: &str,
+    ) -> Result<T, DecodeError<S::Error>>;
+}
+
+impl<'a, S: Source, T> MapDerErr<'a, S, T>
+    for Result<T, DecodeError<S::Error>>
+{
+    fn map_der_err(
+        self,
+        cons: &mut Constructed<'a, S>,
+        el: &str,
+    ) -> Result<T, DecodeError<S::Error>> {
+        self.map_err(|err| {
+            cons.content_err(format!(
+                "DER {} '{el}': {err}",
+                std::any::type_name::<T>()
+            ))
+        })
+    }
 }

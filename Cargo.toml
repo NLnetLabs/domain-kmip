@@ -15,18 +15,15 @@ keywords = ["DNS", "domain", "KMIP"]
 homepage = "https://nlnetlabs.nl/projects/domain/"
 repository = "https://github.com/nlnetlabs/domain-kmip/"
 
-
 [dependencies]
+maybe-async = "0.2.11"
 
 # This crate provides extensions to 'domain'.
 [dependencies.domain]
 package = "domain"
 version = "0.12.2"
-git = "https://github.com/NLnetLabs/domain"
-branch = "main"
 # TODO: Find a way to enable the 'crypto' module without Ring or OpenSSL.
 features = ["ring", "unstable-crypto-sign"]
-#path = "../domain4"
 
 # This crate needs some way to interact with KMIP servers.  This requires
 # connecting to them using an appropriate transport protocol and understanding
@@ -37,9 +34,11 @@ features = ["ring", "unstable-crypto-sign"]
 [dependencies.kmip-protocol]
 # TODO: Convert to a regular 'version' spec.
 #git = "https://github.com/NLnetLabs/kmip-protocol.git" 
-#branch = "next"
-path = "../kmip-protocol2"
-# TODO: Support asynchronous operation?
+#branch = "add-server-functionality"
+path = "../kmip-protocol3"
+# Disable the default features so that the aws-lc-rs crypto provider isn't
+# forced on our users but rather let them choose ring or aws-lc-rs.
+default-features = false
 features = ["tls-with-rustls"]
 
 # KMIP specifies the format for cryptographic data, often relying on DER
@@ -86,3 +85,7 @@ features = ["env-filter"]
 # version specifier, resulting in compilation failures.
 [dev-dependencies.lazy_static]
 version = "1.5.0"
+
+[features]
+default = ["kmip-protocol/aws-lc-rs"]
+ring = ["kmip-protocol/ring"]

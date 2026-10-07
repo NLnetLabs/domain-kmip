@@ -3,7 +3,7 @@ use domain::{
     utils::base16,
 };
 use kmip_protocol::{
-    client::pool::{KmipConn, SyncConnPool},
+    net::sync_pool::ConnPool,
     types::{
         common::{KeyFormatType, KeyMaterial, TransparentRSAPublicKey},
         response::ManagedObject,
@@ -12,10 +12,7 @@ use kmip_protocol::{
 use tracing::{debug, error};
 
 use crate::{
-    algorithms::{
-        ecdsa::parse_ecdsa_key_from_x509,
-        rsa::{parse_rsa_from_pkcs1, parse_rsa_from_x509},
-    },
+    algorithms::{ecdsa, rsa},
     error::PublicKeyError,
     key_url::KeyUrl,
 };
@@ -55,44 +52,11 @@ impl PublicKey {
     ///
     /// If the cryptographic algorithm of the retrieved key does not match
     /// the given DNSSEC algorithm an error will be returned.
-    pub fn for_key_id_and_dnssec_algorithm(
+    #[maybe_async::maybe_async]
+    pub async fn for_key_id_and_dnssec_algorithm(
         public_key_id: &str,
         algorithm: SecurityAlgorithm,
-        conn_pool: SyncConnPool,
-    ) -> Result<Self, PublicKeyError> {
-        let client = conn_pool
-            .get()
-            .inspect_err(|err| error!("{err}"))
-            .map_err(|err| {
-                kmip_protocol::client::Error::ServerError(format!(
-                    "Error while attempting to acquire KMIP connection from pool: {err}"
-                ))
-            })?;
-
-        let res = Self::do_for_key_id_and_dnssec_algorithm(
-            public_key_id,
-            algorithm,
-            &client,
-        );
-
-        if res.is_err() {
-            debug!(
-                "Last KMIP request:\n{}",
-                client.last_req_diag_str().unwrap_or_default()
-            );
-            debug!(
-                "Last KMIP response:\n{}",
-                client.last_res_diag_str().unwrap_or_default()
-            );
-        }
-
-        res
-    }
-
-    fn do_for_key_id_and_dnssec_algorithm(
-        public_key_id: &str,
-        algorithm: SecurityAlgorithm,
-        client: &KmipConn,
+        conn_pool: ConnPool,
     ) -> Result<Self, PublicKeyError> {
         // https://datatracker.ietf.org/doc/html/rfc5702#section-2
         // Use of SHA-2 Algorithms with RSA in DNSKEY and RRSIG Resource
@@ -135,22 +99,26 @@ impl PublicKey {
         // length of the modulus can be determined from the RDLENGTH and the
         // preceding RDATA fields including the exponent.  Leading zero octets
         // are prohibited in the exponent and modulus.
+        let mut client = conn_pool
+            .get()
+            .inspect_err(|err| error!("{err}"))
+            .map_err(|err| {
+                kmip_protocol::net::NetError::ServerError(format!(
+                    "Error while attempting to acquire KMIP connection from pool: {err}"
+                ))
+            })?;
 
         // Note: OpenDNSSEC queries the public key ID, _unless_ it was
         // configured not the public key in the HSM (by setting CKA_TOKEN
         // false) in which case there is no public key and so it uses the
         // private key object handle instead.
-        let res = client
-            .get_key(public_key_id)
-            .inspect_err(|err| error!("{err}"))?;
+        let res = client.get_key(public_key_id).await?;
         let ManagedObject::PublicKey(public_key) = res.cryptographic_object
         else {
-            return Err(kmip_protocol::client::Error::DeserializeError(
-                format!(
-                    "Fetched KMIP object was expected to be a PublicKey but was instead: {}",
-                    res.cryptographic_object
-                ),
-            ))?;
+            return Err(PublicKeyError::Kmip(format!(
+                "Expected KMIP PublicKey but received: {}",
+                res.cryptographic_object
+            )))?;
         };
 
         // https://docs.oasis-open.org/kmip/ug/v1.2/cn01/kmip-ug-v1.2-cn01.html#_Toc407027125
@@ -189,7 +157,7 @@ impl PublicKey {
                         | SecurityAlgorithm::RSASHA256
                         | SecurityAlgorithm::RSASHA512,
                         KeyFormatType::PKCS1,
-                    ) => parse_rsa_from_pkcs1(algorithm, &bytes),
+                    ) => rsa::parse_pkcs1(algorithm, &bytes),
 
                     (
                         SecurityAlgorithm::RSASHA1
@@ -197,7 +165,7 @@ impl PublicKey {
                         | SecurityAlgorithm::RSASHA256
                         | SecurityAlgorithm::RSASHA512,
                         KeyFormatType::Raw,
-                    ) => parse_rsa_from_x509(algorithm, &bytes),
+                    ) => rsa::parse_x509(algorithm, &bytes),
 
                     (
                         SecurityAlgorithm::RSASHA1
@@ -205,7 +173,7 @@ impl PublicKey {
                         | SecurityAlgorithm::RSASHA256
                         | SecurityAlgorithm::RSASHA512,
                         KeyFormatType::X509,
-                    ) => parse_rsa_from_x509(algorithm, &bytes),
+                    ) => rsa::parse_x509(algorithm, &bytes),
 
                     // Both Securosys and Fortanix DSM return a DER-encoded
                     // ASN.1 X.509 object but Fortanix sets Key Format Type to
@@ -213,30 +181,22 @@ impl PublicKey {
                     (
                         SecurityAlgorithm::ECDSAP256SHA256,
                         KeyFormatType::Raw | KeyFormatType::X509,
-                    ) => parse_ecdsa_key_from_x509(algorithm, &bytes),
+                    ) => ecdsa::parse_x509(algorithm, &bytes),
 
                     (
                         SecurityAlgorithm::ECDSAP384SHA384,
                         KeyFormatType::Raw | KeyFormatType::X509,
-                    ) => parse_ecdsa_key_from_x509(algorithm, &bytes),
+                    ) => ecdsa::parse_x509(algorithm, &bytes),
 
-                    (expected, key_format_type) => {
+                    (_, key_format_type) => {
                         let alg = public_key
                             .key_block
                             .cryptographic_algorithm
-                            .map(|a| a.to_string())
-                            .unwrap_or("unknown algorithm".to_string());
-                        let len = public_key
-                            .key_block
-                            .cryptographic_length
-                            .map(|l| l.to_string())
-                            .unwrap_or("unknown length".to_string());
-                        let actual =
-                            format!("{alg} ({len}) as {key_format_type}");
-                        Err(PublicKeyError::AlgorithmMismatch {
-                            expected,
-                            actual,
-                        })
+                            .map(|alg| alg.to_string());
+                        let len = public_key.key_block.cryptographic_length;
+                        Err(PublicKeyError::Kmip(format!(
+                            "Unsupported public key format type for {algorithm}: {key_format_type} (alg={alg:?}, len={len:?})"
+                        )))
                     }
                 }
             }
@@ -252,10 +212,9 @@ impl PublicKey {
                 public_key: rsa_encode(&public_exponent, &modulus),
             }),
 
-            mat => Err(kmip_protocol::client::Error::DeserializeError(format!(
-                "Fetched KMIP object has unsupported key material type: {mat}"
-            ))
-            .into()),
+            mat => Err(PublicKeyError::Kmip(format!(
+                "Unsupported public key material format: {mat}"
+            ))),
         }
     }
 
@@ -265,7 +224,7 @@ impl PublicKey {
     /// [`Self::for_key_id_and_dnssec_algorithm`].
     pub fn for_key_url(
         public_key_url: KeyUrl,
-        conn_pool: SyncConnPool,
+        conn_pool: ConnPool,
     ) -> Result<Self, PublicKeyError> {
         Self::for_key_id_and_dnssec_algorithm(
             public_key_url.key_id(),
