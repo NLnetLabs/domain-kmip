@@ -21,7 +21,7 @@ maybe-async = "0.2.11"
 # This crate provides extensions to 'domain'.
 [dependencies.domain]
 package = "domain"
-version = "0.12.2"
+version = "0.12.3"
 # TODO: Find a way to enable the 'crypto' module without Ring or OpenSSL.
 features = ["ring", "unstable-crypto-sign"]
 
