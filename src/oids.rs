@@ -39,10 +39,18 @@ pub const SECP384R1_OID: OidInfo = OidInfo {
     bytes: Oid(&[43, 129, 4, 0, 34]),
 };
 
-// // See RFC 8410: Algorithm Identifiers for Ed25519, Ed448, X25519, and X448 for Use in the Internet X.509 Public Key Infrastructure
-// // https://www.rfc-editor.org/info/rfc8410/#section-3
-// const ED25519_OID: OidInfo = OidInfo {
-//     asn1_object_identifier: "id-Ed25519",
-//     dot_name: "1.3.101.112",
-//     bytes: Oid(&[43, 101, 112]),
-// };
+// See RFC 8410: Algorithm Identifiers for Ed25519, Ed448, X25519, and X448 for Use in the Internet X.509 Public Key Infrastructure
+// https://www.rfc-editor.org/info/rfc8410/#section-3
+pub const ED25519_OID: OidInfo = OidInfo {
+    asn1_object_identifier: "id-Ed25519",
+    dot_name: "1.3.101.112",
+    bytes: Oid(&[43, 101, 112]),
+};
+
+// See RFC 8410: Algorithm Identifiers for Ed25519, Ed448, X25519, and X448 for Use in the Internet X.509 Public Key Infrastructure
+// https://www.rfc-editor.org/info/rfc8410/#section-3
+pub const ED448_OID: OidInfo = OidInfo {
+    asn1_object_identifier: "id-Ed448",
+    dot_name: "1.3.101.112",
+    bytes: Oid(&[43, 101, 113]),
+};

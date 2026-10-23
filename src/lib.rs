@@ -11,8 +11,8 @@
 //!   - 10: RSA/SHA-512
 //!   - 13: ECDSA Curve P-256 with SHA-256
 //!   - 14: ECDSA Curve P-384 with SHA-384
-//!   - 15: Ed25519 - Coming soon
-//!   - 16: Ed448 - Coming soon
+//!   - 15: Ed25519
+//!   - 16: Ed448
 //!
 //! Unlike [`domain::crypto::sign::SecretKeyBytes`] this crate has no type
 //! for secret key material as the secret key should be generated, owned by
@@ -94,6 +94,7 @@ mod tests;
 
 pub use key_pair::{KeyPair, SignQueue};
 pub use key_url::KeyUrl;
+pub use oids::*;
 pub use public_key::PublicKey;
 
 /// Dependency re-exports
@@ -116,7 +117,7 @@ use kmip_protocol::types::request::{
 use kmip_protocol::types::response::{
     CreateKeyPairResponsePayload, ResponsePayload,
 };
-use tracing::{debug, error, trace};
+use tracing::{debug, trace};
 
 use crate::algorithms::*;
 use crate::error::{DestroyError, GenerateError};
@@ -124,14 +125,21 @@ use crate::error::{DestroyError, GenerateError};
 //----------- generate() -------------------------------------------------
 
 /// Generate a new key pair for a given algorithm using a specified HSM.
-pub fn generate(
-    public_key_name: String,
-    private_key_name: String,
+pub fn generate<PUB: ToString, PRI: ToString>(
+    public_key_name: PUB,
+    private_key_name: PRI,
     params: GenerateParams,
     flags: u16,
     conn_pool: ConnPool,
 ) -> Result<KeyPair, GenerateError> {
     let algorithm = params.algorithm();
+
+    let mut client = conn_pool.get().map_err(|err| {
+        crate::error::GenerateError::Kmip(format!(
+            "Key generation error: Failed to connect to KMIP server {}: {err}",
+            conn_pool.server_id()
+        ))
+    })?;
 
     // Note: Strictly speaking KMIP requires that each key, including
     // public and private "halves" of the same key "pair", have a unique
@@ -182,14 +190,41 @@ pub fn generate(
         GenerateParams::RsaSha512 { bits } => (&ALG_RSASHA512, Some(bits)),
         GenerateParams::EcdsaP256Sha256 => (&ALG_ECDSAP256SHA256, None),
         GenerateParams::EcdsaP384Sha384 => (&ALG_ECDSAP384SHA384, None),
-        // GenerateParams::Ed25519 => (&ALG_ED25519, None),
-        GenerateParams::Ed25519 => {
-            return Err(GenerateError::UnsupportedAlgorithm);
-        }
-        GenerateParams::Ed448 => {
-            return Err(GenerateError::UnsupportedAlgorithm);
-        }
+        GenerateParams::Ed448 => (&ALG_ED448, None),
+        GenerateParams::Ed25519 => (&ALG_ED25519, None),
     };
+
+    // Ed448 and Ed25519 are not part of the KMIP 1.x specification, their enum
+    // values were introduced in KMIP 2.x. As KMIP 2.x changed how attributes
+    // should be sent to the KMIP server we cannot just use the enum value
+    // from the KMIP 2.x spec with a KMIP 1.x server. As we don't have any
+    // support for KMIP 2.x attributes yet, our Cascade-HSM-Bridge KMIP server
+    // implementation *does* support using the EdXxx enum values via KMIP 1.x
+    // style attributes, and reports this capability via the Query operation
+    // results. So if the user is requesting an EdXxxx key, currently that is
+    // only possible if the server is Cascade-HSM-Bridge. Check for that here.
+    if matches!(params, GenerateParams::Ed448 | GenerateParams::Ed25519) {
+        // Note: For a client that was already in the pool the result of a
+        // previous query operation will have been cached so this won't actually
+        // cause a query operation every time a key is generated.
+        let query_response = client
+            .query()
+            .map_err(|err| GenerateError::Kmip(err.to_string()))?;
+
+        let kmip_1x_edxxx_supported = query_response
+            .extension_information
+            .map(|ext| {
+                ext.iter().any(|ext| {
+                    ext.extension_name
+                        == "Cascade-HSM-Bridge ED448/25519 KMIP 1.x Support"
+                })
+            })
+            .unwrap_or_default();
+
+        if !kmip_1x_edxxx_supported {
+            return Err(GenerateError::UnsupportedAlgorithm);
+        }
+    }
 
     common_attrs.push(Attribute::CryptographicAlgorithm(alg.kmip_crypto_alg));
 
@@ -215,13 +250,7 @@ pub fn generate(
     );
 
     // Execute the request and capture the response
-    let mut client = conn_pool.get().map_err(|err| {
-        crate::error::GenerateError::Kmip(format!(
-            "Key generation failed: Cannot connect to KMIP server {}: {err}",
-            conn_pool.server_id()
-        ))
-    })?;
-
+    trace!("KMIP key generation: Generating KeyPair object");
     let mut response = client.do_request_payload(request);
 
     if let Err(NetError::ServerError(err)) = &response {
@@ -233,40 +262,29 @@ pub fn generate(
         // Try first without, and if that fails, try with.
         if let Some(curve) = alg.elliptic_curve {
             debug!(
-                "Create Key Pair operation failed: {err}. Retrying with an explicitly named elliptic curve."
+                "KMIP key generation: Failed to generate key pair: {err}. Retrying with an explicitly named elliptic curve."
             );
-            common_attrs.push(Attribute(
-                AttributeName("Cryptographic Domain Parameters".into()),
-                Option::<AttributeIndex>::None,
-                CryptographicDomainParameters::default()
-                    .with_recommended_curve(curve.kmip_recommend_curve)
-                    .into(),
-            ));
-            let request = RequestPayload::CreateKeyPair(
-                Some(CommonTemplateAttribute::new(common_attrs)),
-                Some(PrivateKeyTemplateAttribute::new(priv_key_attrs)),
-                Some(PublicKeyTemplateAttribute::new(pub_key_attrs)),
-            );
+            if let Some(recommended_curve) = curve.kmip_recommended_curve {
+                common_attrs.push(Attribute(
+                    AttributeName("Cryptographic Domain Parameters".into()),
+                    Option::<AttributeIndex>::None,
+                    CryptographicDomainParameters::default()
+                        .with_recommended_curve(recommended_curve)
+                        .into(),
+                ));
+                let request = RequestPayload::CreateKeyPair(
+                    Some(CommonTemplateAttribute::new(common_attrs)),
+                    Some(PrivateKeyTemplateAttribute::new(priv_key_attrs)),
+                    Some(PublicKeyTemplateAttribute::new(pub_key_attrs)),
+                );
 
-            // Execute the request and capture the response
-            response = client.do_request_payload(request);
+                // Execute the request and capture the response
+                response = client.do_request_payload(request);
+            }
         }
     }
 
-    let response = response.map_err(|err| {
-        error!("Create Key Pair operation failed: {err}");
-        GenerateError::Kmip(err.to_string())
-    })?;
-
-    let response =
-        response
-            .try_into()
-            .map_err(|err: kmip_protocol::net::NetError| {
-                error!("Create Key Pair operation failed: {err}");
-                GenerateError::Kmip(err.to_string())
-            })?;
-
-    trace!("Key generation operation complete");
+    let response = response?.try_into()?;
 
     // Drop the KMIP client so that it will be returned to the pool and
     // thus be available below when KeyPair::new() is invoked and tries to
@@ -276,7 +294,7 @@ pub fn generate(
     // Process the successful response
     let ResponsePayload::CreateKeyPair(payload) = response else {
         return Err(GenerateError::Kmip(format!(
-            "Unable to parse response: expected CreateKeyPair payload but received {response}",
+            "Incorrect response type: {response}"
         )));
     };
 
@@ -285,8 +303,7 @@ pub fn generate(
         public_key_unique_identifier,
     } = payload;
 
-    trace!("Creating KeyPair with DNSKEY");
-
+    trace!("KMIP key generation: Creating KeyPair object");
     let key_pair = KeyPair::from_metadata(
         algorithm,
         flags,
@@ -304,24 +321,15 @@ pub fn generate(
     // signing.
     let mut client = conn_pool.get().map_err(|err| {
         GenerateError::Kmip(format!(
-            "Cannot connect to KMIP server {}: {err}",
+            "Failed to connect to KMIP server {}: {err}",
             conn_pool.server_id()
         ))
     })?;
     let request = RequestPayload::Activate(Some(private_key_unique_identifier));
 
     // Execute the request and capture the response
-    trace!("Activating KMIP key...");
-    let response = client
-        .do_request_payload(request)
-        .map_err(|err| {
-            GenerateError::Kmip(format!("Key activation failed: {err}"))
-        })?
-        .try_into()
-        .map_err(|err| {
-            GenerateError::Kmip(format!("Key activation failed: {err}"))
-        })?;
-    trace!("Activate operation complete");
+    trace!("KMIP key generation: Activating key");
+    let response = client.do_request_payload(request)?.try_into()?;
 
     // Process the successful response
     let ResponsePayload::Activate(_) = response else {
@@ -330,6 +338,7 @@ pub fn generate(
         )));
     };
 
+    trace!("KMIP key generation: Complete");
     Ok(key_pair)
 }
 
@@ -340,17 +349,8 @@ pub fn generate(
 /// As a KMIP key cannot be destroyed if it is active, this function first
 /// attempts to revoke the key and then destroy it.
 pub fn destroy(key_id: &str, conn_pool: ConnPool) -> Result<(), DestroyError> {
-    let mut client = conn_pool.get().map_err(|err| {
-        DestroyError::Kmip(format!(
-            "Key destruction failed: Cannot connect to KMIP server {}: {err}",
-            conn_pool.server_id()
-        ))
-    })?;
-
-    client
-        .revoke_key(key_id)
-        .map_err(|err| DestroyError::Kmip(err.to_string()))?;
-    client
-        .destroy_key(key_id)
-        .map_err(|err| DestroyError::Kmip(err.to_string()))
+    let mut client = conn_pool.get()?;
+    client.revoke_key(key_id)?;
+    client.destroy_key(key_id)?;
+    Ok(())
 }

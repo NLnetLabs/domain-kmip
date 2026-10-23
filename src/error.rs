@@ -2,6 +2,8 @@
 
 use core::fmt;
 
+use kmip_protocol::net::{NetError, sync_pool::KmipConnError};
+
 /// An error occurred while generating a key pair with a KMIP server.
 #[derive(Clone, Debug)]
 pub enum GenerateError {
@@ -30,6 +32,14 @@ impl fmt::Display for GenerateError {
     }
 }
 
+//--- Conversion
+
+impl From<NetError> for GenerateError {
+    fn from(err: NetError) -> Self {
+        Self::Kmip(err.to_string())
+    }
+}
+
 //--- impl Error
 
 impl std::error::Error for GenerateError {}
@@ -41,6 +51,20 @@ impl std::error::Error for GenerateError {}
 pub enum DestroyError {
     /// A problem occurred while communicating with the KMIP server.
     Kmip(String),
+}
+
+//--- Conversions
+
+impl From<KmipConnError> for DestroyError {
+    fn from(err: KmipConnError) -> Self {
+        Self::Kmip(err.to_string())
+    }
+}
+
+impl From<NetError> for DestroyError {
+    fn from(err: NetError) -> Self {
+        Self::Kmip(err.to_string())
+    }
 }
 
 //--- Formatting
@@ -124,8 +148,8 @@ impl std::error::Error for PublicKeyError {}
 
 //--- Conversions
 
-impl From<kmip_protocol::net::NetError> for PublicKeyError {
-    fn from(err: kmip_protocol::net::NetError) -> Self {
+impl From<NetError> for PublicKeyError {
+    fn from(err: NetError) -> Self {
         PublicKeyError::Kmip(err.to_string())
     }
 }

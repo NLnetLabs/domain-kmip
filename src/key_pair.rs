@@ -7,7 +7,7 @@ use kmip_protocol::types::common::{
 };
 use kmip_protocol::types::request::{BatchItem, RequestPayload};
 use kmip_protocol::types::response::ResponsePayload;
-use tracing::{error, trace};
+use tracing::{debug, error, trace};
 use url::Url;
 use uuid::Uuid;
 
@@ -203,7 +203,7 @@ impl KeyPair {
     ) -> Result<Vec<Signature>, SignError> {
         // Execute the request and capture the response.
         let mut client = self.conn_pool.get().map_err(|err| {
-            error!("Error while obtaining KMIP pool connection: {err}");
+            debug!("KMIP signing error: Failed to connect to server: {err}");
             SignError
         })?;
 
@@ -216,15 +216,16 @@ impl KeyPair {
         // This will block which could be problematic if executed from an
         // async task handler thread as it will block execution of other
         // tasks while waiting for the remote KMIP server to respond.
-        let res = client.do_request_batch(queue).map_err(|err| {
-            error!("Error while sending KMIP request: {err}");
-            SignError
-        })?;
+        let batch_item_results =
+            client.do_request_batch(queue).map_err(|err| {
+                debug!("KMIP signing error: Batch request failed: {err}");
+                SignError
+            })?;
 
         let mut sigs = Vec::with_capacity(q_size);
-        for res in res {
+        for res in batch_item_results {
             let res = res.map_err(|err| {
-                error!("{err}");
+                error!("KMIP signing error: Batch item failed: {err}");
                 SignError
             })?;
             let sig = self.sign_post(res.payload.unwrap())?;
@@ -265,16 +266,20 @@ impl KeyPair {
     /// using this key pair.
     fn sign_pre(&self, data: &[u8]) -> Result<RequestPayload, SignError> {
         let Some(alg_info) = get_alg_info(self.algorithm) else {
-            error!(
-                "Algorithm not supported for KMIP signing: {}",
+            debug!(
+                "KMIP signing error: Algorithm '{}' not supported",
                 self.algorithm
             );
             return Err(SignError);
         };
 
         let mut cryptographic_parameters = CryptographicParameters::default()
-            .with_hashing_algorithm(alg_info.kmip_hash_alg)
             .with_cryptographic_algorithm(alg_info.kmip_crypto_alg);
+
+        if let Some(hash_alg) = alg_info.kmip_hash_alg {
+            cryptographic_parameters =
+                cryptographic_parameters.with_hashing_algorithm(hash_alg);
+        }
 
         if let Some(padding_method) = alg_info.kmip_padding_method {
             cryptographic_parameters =
@@ -291,20 +296,19 @@ impl KeyPair {
 
     /// Process a KMIP HSM signing operation response for this key pair.
     fn sign_post(&self, res: ResponsePayload) -> Result<Signature, SignError> {
-        trace!("Checking sign payload");
         let ResponsePayload::Sign(signed) = res else {
             unreachable!();
         };
 
         trace!(
-            "Algorithm: {}, Signature Data: {}",
+            "KMIP signing post-processing: Algorithm: {}, Signature Data: {}",
             self.algorithm,
             base16::encode_display(&signed.signature_data)
         );
 
         let Some(alg_info) = get_alg_info(self.algorithm) else {
-            error!(
-                "KMIP signature parsing not implemented for algorithm: {}",
+            debug!(
+                "KMIP signing error: Algorithm '{}' not supported",
                 self.algorithm,
             );
             return Err(SignError);
@@ -341,7 +345,9 @@ impl SignRaw for KeyPair {
 
         // Execute the request and capture the response.
         let mut client = self.conn_pool.get().map_err(|err| {
-            error!("Error while obtaining KMIP pool connection: {err}");
+            debug!(
+                "KMIP signing error: Failed to connect to KMIP server: {err}"
+            );
             SignError
         })?;
 
@@ -351,12 +357,12 @@ impl SignRaw for KeyPair {
         let res = client
             .do_request_payload(request)
             .map_err(|err| {
-                error!("Error while sending KMIP request: {err}");
+                debug!("KMIP signing error: Request failed: {err}");
                 SignError
             })?
             .try_into()
             .map_err(|err| {
-                error!("Error while handling KMIP response: {err}");
+                debug!("KMIP signing error: Incorrect or missing response batch item: {err}");
                 SignError
             })?;
 

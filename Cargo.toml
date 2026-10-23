@@ -15,6 +15,10 @@ keywords = ["DNS", "domain", "KMIP"]
 homepage = "https://nlnetlabs.nl/projects/domain/"
 repository = "https://github.com/nlnetlabs/domain-kmip/"
 
+[features]
+default = ["kmip-protocol/aws-lc-rs"]
+ring = ["kmip-protocol/ring"]
+
 [dependencies]
 maybe-async = "0.2.11"
 
@@ -22,8 +26,12 @@ maybe-async = "0.2.11"
 [dependencies.domain]
 package = "domain"
 version = "0.12.3"
-# TODO: Find a way to enable the 'crypto' module without Ring or OpenSSL.
-features = ["ring", "unstable-crypto-sign"]
+features = ["openssl", "unstable-crypto-sign"]
+# TODO: Switch to using the crates.io release version once
+# https://github.com/NLnetLabs/domain/pull/762 is included in a new release of
+# the domain crate.
+git = "https://github.com/NLnetLabs/domain.git"
+branch = "add-sha-512-digest-support"
 
 # This crate needs some way to interact with KMIP servers.  This requires
 # connecting to them using an appropriate transport protocol and understanding
@@ -34,9 +42,13 @@ features = ["ring", "unstable-crypto-sign"]
 [dependencies.kmip-protocol]
 # TODO: Convert to a regular 'version' spec.
 git = "https://github.com/NLnetLabs/kmip-protocol.git" 
-branch = "support-sni-name"
-# Disable the default features so that the aws-lc-rs crypto provider isn't
-# forced on our users but rather let them choose ring or aws-lc-rs.
+branch = "bump-dependencies"
+# Disable the default features so that the user of this crate can override
+# the default using features in this crate, which by default use the same
+# default as kmip-protocol for consistency, i.e. the aws-lc-rs crypto backend
+# is enabled by default. The user of this crate can opt to use the ring crypto
+# backend instead by disabling the default features of this crate and enabling
+# this crates ring feature.
 default-features = false
 features = ["tls-with-rustls"]
 
@@ -61,8 +73,19 @@ version = "0.7.0"
 [dependencies.url]
 version = "2.5.4"
 
-# TODO: Does this crate really need tracing?  Or is it an artefact of the
-# need for quick debugging?
+# Ideally this crate wouldn't need tracing. It uses for two reasons:
+#   1. To give some indication of at which step, during multi-step processes
+#      such as key generation or signing, an issue occurred. This could be
+#      avoided by enriching returned errors with additional context.
+#
+#   2. To give some indication of the reason for failure during signing
+#      operations, as the domain SignRaw trait returns SignError which lacks
+#      any context at all. This could be resolved by enriching the SignError
+#      type to allow returning some context with the error.
+#
+# To avoid polluting the logs of the application using this crate the log
+# messages are at debug and trace level and thus not expected to occur in the
+# log output of the application by default.
 [dependencies.tracing]
 version = "0.1.40"
 
@@ -84,7 +107,3 @@ features = ["env-filter"]
 # version specifier, resulting in compilation failures.
 [dev-dependencies.lazy_static]
 version = "1.5.0"
-
-[features]
-default = ["kmip-protocol/aws-lc-rs"]
-ring = ["kmip-protocol/ring"]

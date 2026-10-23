@@ -2,7 +2,7 @@ use bcder::{BitString, Oid};
 use domain::{
     base::iana::SecurityAlgorithm, crypto::sign::SignError, utils::base16,
 };
-use tracing::error;
+use tracing::debug;
 
 use crate::{
     algorithms::{MapDerErr, get_alg_info},
@@ -46,7 +46,7 @@ pub fn parse_x962<const LEN: usize>(
             .map_der_err(cons, "sequence")
         })
         .map_err(|err| {
-            error!("Unable to parse ECDSA X9.62 signature: {err}");
+            debug!("Failed to parse ECDSA X9.62 signature: {err}");
             SignError
         })?;
     let (mut r, mut s) = (r.as_slice(), s.as_slice());
@@ -62,8 +62,8 @@ pub fn parse_x962<const LEN: usize>(
             [0, 0x80..=0xFF, ..] => &x[1..],
             // Badly formatted signature.
             [0, _, ..] => {
-                error!(
-                    "Unable to parse ECDSA X9.62 signature: Leading zeros integer"
+                debug!(
+                    "Failed to parse ECDSA X9.62 signature: Leading zeros integer"
                 );
                 return Err(SignError);
             }
@@ -71,8 +71,8 @@ pub fn parse_x962<const LEN: usize>(
         };
 
         if x.len() > half_len {
-            error!(
-                "Unable to parse ECDSA X9.62 signature: integer too long: {} > {}",
+            debug!(
+                "Failed to parse ECDSA X9.62 signature: integer too long: {} > {}",
                 x.len(),
                 half_len
             );
@@ -85,7 +85,7 @@ pub fn parse_x962<const LEN: usize>(
     Ok(signature)
 }
 
-/// Parse an ECDSA key encoded in the KMIP "raw" format convention.
+/// Parse an ECDSA key encoded in X.509 format.
 ///
 /// # Panics
 ///
@@ -151,7 +151,7 @@ pub fn parse_x509(
                 Ok(bits)
             })
         }).map_err(|err| {
-            PublicKeyError::InvalidKeyMaterial(format!("Unable to parse ECDSA X.509 SubjectPublicKeyInfo: {err}"))
+            PublicKeyError::InvalidKeyMaterial(format!("Failed to parse ECDSA X.509 SubjectPublicKeyInfo: {err}"))
         })?;
 
     // compression flag byte, X value, Y value
@@ -173,7 +173,7 @@ pub fn parse_x509(
     //    in the first octet."
     let Some(octets) = bits.octet_slice() else {
         return Err(PublicKeyError::InvalidKeyMaterial(format!(
-            "Unable to parse ECDSA X.509 SubjectPublicKeyInfo with curve {}/{} bit string: missing octets",
+            "Failed to parse ECDSA X.509 SubjectPublicKeyInfo with curve {}/{} bit string: missing octets",
             curve.kmip_name, curve.alt_name
         )));
     };
@@ -183,14 +183,14 @@ pub fn parse_x509(
     let compression_flag = octets[0];
     if compression_flag != 0x04 {
         return Err(PublicKeyError::InvalidKeyMaterial(format!(
-            "Unable to parse ECDSA X.509 SubjectPublicKeyInfo with curve {}/{} bit string: unsupported compression flag {compression_flag:?}",
+            "Failed to parse ECDSA X.509 SubjectPublicKeyInfo with curve {}/{} bit string: unsupported compression flag {compression_flag:?}",
             curve.kmip_name, curve.alt_name
         )));
     }
 
     if octets.len() != num_expected_bytes as usize {
         return Err(PublicKeyError::InvalidKeyMaterial(format!(
-            "Unable to parse X.509 SubjectPublicKeyInfo curve {}/{} bit string: expected [<compression flag byte>, <{value_byte_len}-byte X value>, <{value_byte_len}-byte Y value>]i but found: {} ({} bytes)",
+            "Failed to parse ECDSA X.509 SubjectPublicKeyInfo curve {}/{} bit string: expected [<compression flag byte>, <{value_byte_len}-byte X value>, <{value_byte_len}-byte Y value>]i but found: {} ({} bytes)",
             curve.kmip_name,
             curve.alt_name,
             base16::encode_display(octets),

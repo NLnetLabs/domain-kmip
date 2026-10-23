@@ -9,7 +9,7 @@ use kmip_protocol::{
         response::ManagedObject,
     },
 };
-use tracing::{debug, error};
+use tracing::debug;
 
 use crate::{
     algorithms::{ecdsa, rsa},
@@ -101,7 +101,6 @@ impl PublicKey {
         // are prohibited in the exponent and modulus.
         let mut client = conn_pool
             .get()
-            .inspect_err(|err| error!("{err}"))
             .map_err(|err| {
                 kmip_protocol::net::NetError::ServerError(format!(
                     "Error while attempting to acquire KMIP connection from pool: {err}"
@@ -164,14 +163,6 @@ impl PublicKey {
                         | SecurityAlgorithm::RSASHA1_NSEC3_SHA1
                         | SecurityAlgorithm::RSASHA256
                         | SecurityAlgorithm::RSASHA512,
-                        KeyFormatType::Raw,
-                    ) => rsa::parse_x509(algorithm, &bytes),
-
-                    (
-                        SecurityAlgorithm::RSASHA1
-                        | SecurityAlgorithm::RSASHA1_NSEC3_SHA1
-                        | SecurityAlgorithm::RSASHA256
-                        | SecurityAlgorithm::RSASHA512,
                         KeyFormatType::X509,
                     ) => rsa::parse_x509(algorithm, &bytes),
 
@@ -180,13 +171,21 @@ impl PublicKey {
                     // Raw while the Securosys sets it to X.509.
                     (
                         SecurityAlgorithm::ECDSAP256SHA256,
-                        KeyFormatType::Raw | KeyFormatType::X509,
+                        KeyFormatType::X509,
                     ) => ecdsa::parse_x509(algorithm, &bytes),
 
                     (
                         SecurityAlgorithm::ECDSAP384SHA384,
                         KeyFormatType::Raw | KeyFormatType::X509,
                     ) => ecdsa::parse_x509(algorithm, &bytes),
+
+                    (
+                        SecurityAlgorithm::ED448 | SecurityAlgorithm::ED25519,
+                        KeyFormatType::Raw,
+                    ) => Ok(PublicKey {
+                        algorithm,
+                        public_key: bytes,
+                    }),
 
                     (_, key_format_type) => {
                         let alg = public_key
