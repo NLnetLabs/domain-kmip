@@ -26,6 +26,7 @@ maybe-async = "0.2.11"
 [dependencies.domain]
 package = "domain"
 version = "0.12.3"
+# Use openssl with domain because that is what Cascade uses.
 features = ["openssl", "unstable-crypto-sign"]
 # TODO: Switch to using the crates.io release version once
 # https://github.com/NLnetLabs/domain/pull/762 is included in a new release of
