@@ -32,7 +32,6 @@ features = ["openssl", "unstable-crypto-sign"]
 # https://github.com/NLnetLabs/domain/pull/762 is included in a new release of
 # the domain crate.
 git = "https://github.com/NLnetLabs/domain.git"
-branch = "add-sha-512-digest-support"
 
 # This crate needs some way to interact with KMIP servers.  This requires
 # connecting to them using an appropriate transport protocol and understanding
