@@ -214,7 +214,9 @@ jobs:
     needs: determine-msrv
     strategy:
       matrix:
-        os: [ubuntu-latest, macOS-latest, windows-latest]
+        # Don't test on Windows because "it's a pain to compile on Windows".
+        # See: https://github.com/NLnetLabs/domain/blob/f984e3fe637a79336530153777d0a834854cdcee/.github/workflows/ci.yml#L409
+        os: [ubuntu-latest, macOS-latest] # windows-latest]
         rust: ["${{ needs.determine-msrv.outputs.msrv }}", stable, nightly]
     runs-on: ${{ matrix.os }}
     env:
