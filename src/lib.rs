@@ -216,7 +216,7 @@ pub fn generate<PUB: ToString, PRI: ToString>(
             .map(|ext| {
                 ext.iter().any(|ext| {
                     ext.extension_name
-                        == "Cascade-HSM-Bridge ED448/25519 KMIP 1.x Support"
+                        == "Cascade-HSM-Bridge Ed448/25519 KMIP 1.x Support"
                 })
             })
             .unwrap_or_default();
