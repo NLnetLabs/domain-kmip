@@ -32,7 +32,7 @@ features = ["openssl", "unstable-crypto-sign"]
 # https://github.com/NLnetLabs/domain/pull/762 is included in a new release of
 # the domain crate.
 git = "https://github.com/NLnetLabs/domain.git"
-branch = "main"
+tag = "v0.12.3"
 
 # This crate needs some way to interact with KMIP servers.  This requires
 # connecting to them using an appropriate transport protocol and understanding
@@ -41,9 +41,9 @@ branch = "main"
 # - 'kmip-protocol' provides protocol definitions and high-level client/server
 #   functionality.  It is maintained by us (NLnet Labs).
 [dependencies.kmip-protocol]
-# TODO: Convert to a regular 'version' spec.
+version = "0.5.1"
 git = "https://github.com/NLnetLabs/kmip-protocol.git" 
-branch = "bump-dependencies"
+branch = "release-prep"
 # Disable the default features so that the user of this crate can override
 # the default using features in this crate, which by default use the same
 # default as kmip-protocol for consistency, i.e. the aws-lc-rs crypto backend
