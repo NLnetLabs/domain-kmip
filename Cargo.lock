@@ -494,7 +494,7 @@ dependencies = [
 [[package]]
 name = "kmip-protocol"
 version = "0.5.1"
-source = "git+https://github.com/NLnetLabs/kmip-protocol.git?branch=release-prep#1b066c5fed4d0ce70bea8f0f4b40d4c0f1823528"
+source = "git+https://github.com/NLnetLabs/kmip-protocol.git?branch=release-prep#25aec8ad38520d9898b23eb3ef210197afe508f3"
 dependencies = [
  "bitflags 2.13.2",
  "cfg-if",
