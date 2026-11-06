@@ -14,7 +14,7 @@ use tracing::debug;
 use crate::oids::*;
 use ecdsa::parse_x962;
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct EllipticCurveInfo {
     pub oid: &'static OidInfo,
     pub kmip_name: &'static str, // See https://docs.oasis-open.org/kmip/ug/v1.2/cn01/kmip-ug-v1.2-cn01.html#_Toc407027131
@@ -22,7 +22,7 @@ pub struct EllipticCurveInfo {
     pub kmip_recommended_curve: Option<RecommendedCurve>,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct AlgorithmInfo {
     pub oid: &'static OidInfo,
     pub len_range: Option<(u32, u32)>, // We don't use RangeExclusive because it doesn't implement Copy

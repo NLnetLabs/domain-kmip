@@ -1,5 +1,6 @@
 use bcder::{ConstOid, Oid};
 
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OidInfo {
     pub asn1_object_identifier: &'static str,
     pub dot_name: &'static str,
