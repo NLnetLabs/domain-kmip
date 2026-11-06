@@ -43,7 +43,7 @@ rev = "f4ca391" # Needed for https://github.com/NLnetLabs/domain/pull/762
 [dependencies.kmip-protocol]
 version = "0.5.1"
 git = "https://github.com/NLnetLabs/kmip-protocol.git" 
-branch = "release-prep"
+tag = "v0.5.1"
 # Disable the default features so that the user of this crate can override
 # the default using features in this crate, which by default use the same
 # default as kmip-protocol for consistency, i.e. the aws-lc-rs crypto backend
