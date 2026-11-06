@@ -104,8 +104,8 @@ pub mod dep {
 }
 
 use domain::crypto::sign::GenerateParams;
-use kmip_protocol::net::NetError;
 use kmip_protocol::net::sync_pool::ConnPool;
+use kmip_protocol::net::{NetError, NetResult};
 use kmip_protocol::types::common::{
     AttributeIndex, AttributeName, CryptographicDomainParameters,
     CryptographicUsageMask,
@@ -251,7 +251,8 @@ pub fn generate<PUB: ToString, PRI: ToString>(
 
     // Execute the request and capture the response
     trace!("KMIP key generation: Generating KeyPair object");
-    let mut response = client.do_request_payload(request);
+    let mut response: NetResult<ResponsePayload> =
+        client.do_request_payload(request)?.try_into();
 
     if let Err(NetError::ServerError(err)) = &response {
         // Some HSM KMIP implementations require Cryptographic Domain
@@ -279,12 +280,12 @@ pub fn generate<PUB: ToString, PRI: ToString>(
                 );
 
                 // Execute the request and capture the response
-                response = client.do_request_payload(request);
+                response = client.do_request_payload(request)?.try_into();
             }
         }
     }
 
-    let response = response?.try_into()?;
+    let response = response?;
 
     // Drop the KMIP client so that it will be returned to the pool and
     // thus be available below when KeyPair::new() is invoked and tries to
