@@ -2,7 +2,7 @@
 name = "domain-kmip"
 description = "KMIP HSM signing support for `domain`."
 authors = ["NLnet Labs <dns-team@nlnetlabs.nl>"]
-version = "0.0.1"
+version = "0.0.2-dev"
 
 edition = "2024"
 # The MSRV is at least 4 versions behind stable (about half a year).
