@@ -127,7 +127,9 @@ impl PublicKey {
         // As we deal in asymmetric keys (RSA, ECDSA), not symmetric keys,
         // we should not encounter public_key.key_block.key_format_type
         // == KeyFormatType::Raw. However, Fortanix DSM returns
-        // KeyFormatType::Raw when fetching key data for an ECDSA public key.
+        // KeyFormatType::Raw when fetching key data, even for asmmetric keys.
+        //
+        // See: https://docs.oasis-open.org/kmip/ug/v1.2/cn01/kmip-ug-v1.2-cn01.html#_Toc407027125.
 
         match public_key.key_block.key_value.key_material {
             KeyMaterial::Bytes(bytes) => {
@@ -186,6 +188,12 @@ impl PublicKey {
                         algorithm,
                         public_key: bytes,
                     }),
+
+                    (
+                        SecurityAlgorithm::RSASHA256
+                        | SecurityAlgorithm::RSASHA512,
+                        KeyFormatType::Raw,
+                    ) => rsa::parse_x509(algorithm, &bytes),
 
                     (_, key_format_type) => {
                         let alg = public_key
