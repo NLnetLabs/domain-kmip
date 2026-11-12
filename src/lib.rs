@@ -120,7 +120,7 @@ use kmip_protocol::types::response::{
 use tracing::{debug, trace};
 
 use crate::algorithms::*;
-use crate::error::{DestroyError, GenerateError};
+use crate::error::GenerateError;
 
 //----------- generate() -------------------------------------------------
 
@@ -349,8 +349,10 @@ pub fn generate<PUB: ToString, PRI: ToString>(
 ///
 /// As a KMIP key cannot be destroyed if it is active, this function first
 /// attempts to revoke the key and then destroy it.
-pub fn destroy(key_id: &str, conn_pool: ConnPool) -> Result<(), DestroyError> {
-    let mut client = conn_pool.get()?;
+pub fn destroy(key_id: &str, conn_pool: ConnPool) -> Result<(), NetError> {
+    let mut client = conn_pool.get().map_err(|err| {
+        NetError::IoError(std::io::Error::other(err.to_string()))
+    })?;
     client.revoke_key(key_id)?;
     client.destroy_key(key_id)?;
     Ok(())
