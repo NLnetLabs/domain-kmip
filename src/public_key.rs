@@ -127,7 +127,8 @@ impl PublicKey {
         // As we deal in asymmetric keys (RSA, ECDSA), not symmetric keys,
         // we should not encounter public_key.key_block.key_format_type
         // == KeyFormatType::Raw. However, Fortanix DSM returns
-        // KeyFormatType::Raw when fetching key data, even for asmmetric keys.
+        // KeyFormatType::Raw when fetching key data, even for asymmetric
+        // keys.
         //
         // See: https://docs.oasis-open.org/kmip/ug/v1.2/cn01/kmip-ug-v1.2-cn01.html#_Toc407027125.
 
