@@ -2,7 +2,7 @@
 
 use core::fmt;
 
-use kmip_protocol::net::{NetError, sync_pool::KmipConnError};
+use kmip_protocol::net::NetError;
 
 /// An error occurred while generating a key pair with a KMIP server.
 #[derive(Clone, Debug)]
