@@ -44,10 +44,6 @@ impl From<NetError> for GenerateError {
 
 impl std::error::Error for GenerateError {}
 
-//--- Error
-
-impl std::error::Error for DestroyError {}
-
 //------------ KeyUrlError ---------------------------------------------------
 
 /// An error occurred while parsing a KMIP key URL.
