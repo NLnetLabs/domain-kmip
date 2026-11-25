@@ -19,6 +19,7 @@
 //! and not normally leave the HSM (except perhaps for HSM <-> HSM syncing
 //! operations or for migration from one HSM to another).
 //!
+//! <div class="warning">Working with Ed25519 and Ed448 keys requires an
 //! HSM that supports v2.x or higher of the OASIS KMIP specification. This
 //! crate does not yet support KMIP 2.x. It currently supports Ed448 and
 //! Ed25519 only with HSMs that support a KMIP extension that was created
