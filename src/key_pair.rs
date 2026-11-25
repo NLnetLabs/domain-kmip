@@ -174,7 +174,7 @@ impl KeyPair {
     /// Enqueue a KMIP signing operation using this key pair on the given
     /// data.
     ///
-    /// Like [`SignRaw::sign_raw()`] but deferred until
+    /// Like `SignRaw::sign_raw()` but deferred until
     /// [`KeyPair::sign_raw_submit_queue()`] is called.
     pub fn sign_raw_enqueue(
         &self,
