@@ -14,19 +14,28 @@ Released yyyy-mm-dd.
 ### Acknowledgements
 -->
 
-## Unreleased version
+## 0.2.0
+
+Released YYYY-MM-DD.
+
+### Breaking changes
+
+- Remove `DestroyError` as it loses critical information. ([#10] by @ximon18)
 
 ### Bug fixes
 
-- Fortanix DSM fixes. ([#9] by @ximon18)
+- Handle RSA key material from Fortanix DSM HSMs correctly. ([#9] by @ximon18)
 
 ### Other
 
-- Use kmip-protocol from crates.io now that it has been published. ([#8] by
-  @ximon18)
+- Improved KMIP server compatibility. ([#12] by @ximon18)
+- Update dependencies to crates.io versions to enable publication of this
+  crate to crates.io. ([#8] and [#12] by @ximon18)
 
 [#8]: https://github.com/NLnetLabs/domain-kmip/pull/8
 [#9]: https://github.com/NLnetLabs/domain-kmip/pull/9
+[#10]: https://github.com/NLnetLabs/domain-kmip/pull/10
+[#10]: https://github.com/NLnetLabs/domain-kmip/pull/10
 
 
 ## 0.1.0
