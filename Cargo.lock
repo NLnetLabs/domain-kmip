@@ -176,7 +176,7 @@ dependencies = [
 
 [[package]]
 name = "domain-kmip"
-version = "0.0.2-dev"
+version = "0.0.2"
 dependencies = [
  "bcder",
  "domain",
