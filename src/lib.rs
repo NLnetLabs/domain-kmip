@@ -142,7 +142,7 @@
 //! #     257,
 //! #     hsm_conn_pool).unwrap();
 //! // Bring the SignRaw trait into scope.
-//! use dep::domain::crypto::sign::SignRaw;
+//! use domain_kmip::dep::domain::crypto::sign::SignRaw;
 //!
 //! // Sign via the trait function `sign_raw()`.
 //! let signature = key_pair.sign_raw(b"Bytes to sign").unwrap();
@@ -173,7 +173,7 @@
 //! #     "pri key name",
 //! #     GenerateParams::EcdsaP256Sha256,
 //! #     257,
-//! #     hsm_conn_pool).unwrap();
+//! #     hsm_conn_pool.clone()).unwrap();
 //! use domain_kmip::destroy;
 //! destroy("key id", hsm_conn_pool).unwrap();
 //! ```
