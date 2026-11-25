@@ -174,7 +174,7 @@ impl PublicKey {
                     // Raw while the Securosys sets it to X.509.
                     (
                         SecurityAlgorithm::ECDSAP256SHA256,
-                        KeyFormatType::X509,
+                        KeyFormatType::Raw | KeyFormatType::X509,
                     ) => ecdsa::parse_x509(algorithm, &bytes),
 
                     (
