@@ -24,7 +24,7 @@
 //!
 //! # Creating a connection pool
 //!
-//! Connections to the KMIP HSM are made using [`SyncConnPool`]. Some high
+//! Connections to the KMIP HSM are made using [`ConnPool`]. Some high
 //! level operations actually require multiple exchanges with the KMIP HSM
 //! and by using a connection pool we do not have to deal with expired
 //! sessions or closed connections, such situations are handled transparently
