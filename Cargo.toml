@@ -89,6 +89,12 @@ version = "0.1.40"
 version = "1.18.0"
 features = ["v4"]
 
+[dependencies.scheduled-thread-pool]
+# Pin scheduled-thread-pool (which comes in via r2d2) to prevent it requiring
+# newer lock_api which in turn requires Rust 1.95 which is higher than our
+# MSRV of 1.88.
+version = "=0.2.7"
+
 
 [dev-dependencies]
 
