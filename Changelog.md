@@ -26,16 +26,21 @@ Released 2026-11-25.
 
 - Handle RSA key material from Fortanix DSM HSMs correctly. ([#9] by @ximon18)
 
-### Other
+### Other changes
 
 - Improved KMIP server compatibility. ([#12] by @ximon18)
 - Update dependencies to crates.io versions to enable publication of this
   crate to crates.io. ([#8] and [#12] by @ximon18)
 
+### Documentation improvements
+
+- Update the RustDoc index page. ([#13] by @ximon18)
+
 [#8]: https://github.com/NLnetLabs/domain-kmip/pull/8
 [#9]: https://github.com/NLnetLabs/domain-kmip/pull/9
 [#10]: https://github.com/NLnetLabs/domain-kmip/pull/10
-[#10]: https://github.com/NLnetLabs/domain-kmip/pull/10
+[#12]: https://github.com/NLnetLabs/domain-kmip/pull/12
+[#13]: https://github.com/NLnetLabs/domain-kmip/pull/13
 
 
 ## 0.1.0
