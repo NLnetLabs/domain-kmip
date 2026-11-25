@@ -50,8 +50,8 @@
 //! let key_pair = KeyPair::from_metadata(
 //!     SecurityAlgorithm::ECDSAP256SHA256,
 //!     257,
-//!     "aaa",
-//!     "bbb",
+//!     "pri key id",
+//!     "pub key id",
 //!     hsm_conn_pool).unwrap();
 //!
 //! // Check that the algorithm and key tag match expectations.
@@ -68,7 +68,12 @@
 //! # use crate::generate;
 //! // Generate a new ECDSAP256SHA256 key.
 //! let params = GenerateParams::EcdsaP256Sha256;
-//! let key_pair = generate(&params, 257).unwrap();
+//! let key_pair = generate(
+//!     "pub key name",
+//!     "pri key name",
+//!     GenerateParams::EcdsaP256Sha256,
+//!     257,
+//!     hsm_conn_pool).unwrap();
 //! ```
 //!
 //! # Signing data
