@@ -2,7 +2,7 @@
 
 use core::fmt;
 
-use kmip_protocol::net::{NetError, sync_pool::KmipConnError};
+use kmip_protocol::net::NetError;
 
 /// An error occurred while generating a key pair with a KMIP server.
 #[derive(Clone, Debug)]
@@ -43,48 +43,6 @@ impl From<NetError> for GenerateError {
 //--- impl Error
 
 impl std::error::Error for GenerateError {}
-
-//------------ DestroyError --------------------------------------------------
-
-/// An error occurred while destroying a key using KMIP.
-#[derive(Clone, Debug)]
-pub enum DestroyError {
-    /// A problem occurred while communicating with the KMIP server.
-    Kmip(String),
-}
-
-//--- Conversions
-
-impl From<KmipConnError> for DestroyError {
-    fn from(err: KmipConnError) -> Self {
-        Self::Kmip(err.to_string())
-    }
-}
-
-impl From<NetError> for DestroyError {
-    fn from(err: NetError) -> Self {
-        Self::Kmip(err.to_string())
-    }
-}
-
-//--- Formatting
-
-impl fmt::Display for DestroyError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Kmip(err) => {
-                write!(
-                    f,
-                    "a problem occurred while communicating with the KMIP server: {err}"
-                )
-            }
-        }
-    }
-}
-
-//--- Error
-
-impl std::error::Error for DestroyError {}
 
 //------------ KeyUrlError ---------------------------------------------------
 
