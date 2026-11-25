@@ -16,7 +16,7 @@ Released yyyy-mm-dd.
 
 ## 0.2.0
 
-Released YYYY-MM-DD.
+Released 2026-11-25.
 
 ### Breaking changes
 
