@@ -94,7 +94,6 @@ mod tests;
 
 pub use key_pair::{KeyPair, SignQueue};
 pub use key_url::KeyUrl;
-pub use oids::*;
 pub use public_key::PublicKey;
 
 /// Dependency re-exports
