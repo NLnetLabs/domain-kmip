@@ -14,7 +14,10 @@ Released yyyy-mm-dd.
 ### Acknowledgements
 -->
 
-## 0.2.0
+## Unreleased version
+
+
+## 0.0.2
 
 Released 2026-11-26.
 
@@ -48,7 +51,7 @@ Released 2026-11-26.
 [#18]: https://github.com/NLnetLabs/domain-kmip/pull/18
 
 
-## 0.1.0
+## 0.0.1
 
 Released 2026-11-06.
 
