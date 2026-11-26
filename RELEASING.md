@@ -19,6 +19,7 @@
 
 # Release
 - `git checkout main`
+- `git pull`
 - `git tag -a -m "vX.Y.Z[-xxx]" vX.Y.Z[-xxx]`
 - Verify that the release tag version is the same as the Cargo.toml version but with a `v` prefix
 - `git push --tags`
