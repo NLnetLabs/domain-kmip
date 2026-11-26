@@ -1,5 +1,6 @@
 use bcder::{ConstOid, Oid};
 
+/// Information about a cryptographic algorithm object identifier.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OidInfo {
     pub asn1_object_identifier: &'static str,

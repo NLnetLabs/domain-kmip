@@ -1,11 +1,12 @@
-//! KMIP HSM signing support for [`domain`].
+//! KMIP HSM signing support for use with the [`domain`](https://docs.rs/domain/) crate.
 //!
-//! An implementation of a [`domain::crypto::sign`] compatible backend for
-//! DNSSEC signing using an OASIS KMIP compliant HSM backend.
+//! An implementation of a [`domain::crypto`](https://docs.rs/domain/latest/domain/crypto/)
+//! compatible backend for DNSSEC signing using an OASIS KMIP compliant HSM
+//! backend.
 //!
 //! This backend aims to support the same subset of DNSSEC signing algorithms
-//! as [`domain::crypto::sign::SecretKeyBytes`] can represent which at the
-//! time of writing are:
+//! as [`domain::crypto::sign::SecretKeyBytes`](https://docs.rs/domain/latest/domain/crypto/sign/enum.SecretKeyBytes.html)
+//! can represent which at the time of writing are:
 //!
 //!   -  8: RSA/SHA-256
 //!   - 10: RSA/SHA-512
@@ -14,74 +15,168 @@
 //!   - 15: Ed25519
 //!   - 16: Ed448
 //!
-//! Unlike [`domain::crypto::sign::SecretKeyBytes`] this crate has no type
+//! Unlike `SecretKeyBytes` this crate has no type
 //! for secret key material as the secret key should be generated, owned by
 //! and not normally leave the HSM (except perhaps for HSM <-> HSM syncing
 //! operations or for migration from one HSM to another).
 //!
 //! <div class="warning">Working with Ed25519 and Ed448 keys requires an
-//! HSM that supports v2.x or higher of the OASIS KMIP specification.</div>
+//! HSM that supports v2.x or higher of the OASIS KMIP specification. This
+//! crate does not yet support KMIP 2.x. It currently supports Ed448 and
+//! Ed25519 only with HSMs that support a KMIP extension that was created
+//! for <a href="https://www.nlnetlabs.nl/projects/cascade/">Cascade</a>
+//! called <code>Cascade-HSM-Bridge Ed448/25519 KMIP 1.x Support</code>.</div>
 //!
 //! # Creating a connection pool
 //!
-//! Connections to the KMIP HSM are made using [`SyncConnPool`]. Some high
-//! level operations actually require multiple exchanges with the KMIP HSM
-//! and by using a connection pool we do not have to deal with expired
-//! sessions or closed connections, such situations are handled transparently
-//! by the connection pool.
+//! Connections to the KMIP HSM are made using [`ConnPool`](https://docs.rs/kmip-protocol/latest/kmip_protocol/net/sync_pool/struct.ConnPool.html).
+//! Some high level operations actually require multiple exchanges with the KMIP
+//! HSM and by using a connection pool we do not have to deal with expired
+//! sessions or closed connections, such situations are handled transparently by
+//! the connection pool.
 //!
-//! # Importing keys
+//! # Use existing keys in the HSM
 //!
 //! A [`KeyPair`] type for using a public-private key pair stored in a KMIP
 //! HSM can be constructed using an HSM connection and the appropriate key
 //! identifiers.
 //!
-//! ```ignore
-//! # use crate::key_pair::KeyPair;
-//! # use domain::base::iana::SecurityAlgorithm;
-//! // Construct a KeyPaiar that represents an HSM stored ECDSAP256SHA256 key
-//! // pair with public id  'aaa' and private id 'bbb'. As the HSM is not
+//! ```no_run
+//! use domain_kmip::dep::domain::base::iana::SecurityAlgorithm;
+//! use domain_kmip::dep::kmip_protocol::net::ConnectionSettings;
+//! use domain_kmip::dep::kmip_protocol::net::sync_pool::ConnPool;
+//! use domain_kmip::KeyPair;
+//!
+//! // Create a connection pool.
+//! let mut conn_settings = ConnectionSettings::default();
+//! conn_settings.host = "localhost".to_string();
+//!
+//! let max_concurrent_connections = 10;
+//! let max_life_time = None; // connections may last forever
+//! let max_idle_time = None; // connections may be idle forever
+//!
+//! let hsm_conn_pool = ConnPool::new(
+//!     "myhsm".to_string(),
+//!     conn_settings.into(),
+//!     max_concurrent_connections,
+//!     max_life_time,
+//!     max_idle_time)
+//! .unwrap();
+//!
+//! // Construct a KeyPair that represents an HSM stored ECDSAP256SHA256 key
+//! // pair with the given KMIP public and private IDs. As the HSM is not
 //! // DNSSEC aware we must supply the DNSKEY flags (257 in this case) to
 //! // associate with the key pair, that information is not stored in the HSM.
 //! let key_pair = KeyPair::from_metadata(
 //!     SecurityAlgorithm::ECDSAP256SHA256,
 //!     257,
-//!     "aaa",
-//!     "bbb",
+//!     "pri key id",
+//!     "pub key id",
 //!     hsm_conn_pool).unwrap();
-//!
-//! // Check that the algorithm and key tag match expectations.
-//! assert_eq!(key_pair.algorithm(), SecurityAlgorithm::ECDSAP256SHA256);
-//! assert_eq!(key_pair.dnskey().key_tag(), 56037);
 //! ```
 //!
-//! # Generating keys
+//! # .. Or generate new HSM key pairs.
 //!
-//! Keys can also be generated.
+//! When generating a KMIP key pair, names can be assigned to the keys. These
+//! should not be confused with the actual KMIP key identifiers which can only
+//! be discovered after the key pair has been generated.
 //!
-//! ```ignore
-//! # use domain::crypto::sign::GenerateParams;
-//! # use crate::generate;
-//! // Generate a new ECDSAP256SHA256 key.
-//! let params = GenerateParams::EcdsaP256Sha256;
-//! let key_pair = generate(&params, 257).unwrap();
+//! The [`generate()`] function handles both the KMIP "Create Key Pair"
+//! operation but will also use the KMIP "Activate" operation to ensure that
+//! the generated key pair is ready to use for signing.
+//!
+//! ```no_run
+//! # use domain_kmip::dep::domain::base::iana::SecurityAlgorithm;
+//! # use domain_kmip::dep::kmip_protocol::net::ConnectionSettings;
+//! # use domain_kmip::dep::kmip_protocol::net::sync_pool::ConnPool;
+//! # use domain_kmip::KeyPair;
+//! #
+//! # // Create a connection pool.
+//! # let mut conn_settings = ConnectionSettings::default();
+//! # conn_settings.host = "localhost".to_string();
+//! # let hsm_conn_pool = ConnPool::new(
+//! #     "myhsm".to_string(),
+//! #     conn_settings.into(),
+//! #     1, None, None).unwrap();
+//! use domain_kmip::dep::domain::crypto::sign::GenerateParams;
+//! use domain_kmip::generate;
+//!
+//! // And then sign data using the key.
+//! let key_pair = generate(
+//!     "pub key name",
+//!     "pri key name",
+//!     GenerateParams::EcdsaP256Sha256,
+//!     257,
+//!     hsm_conn_pool).unwrap();
+//!
+//! // Retrieve the HSM identifiers for the generated keys.
+//! println!("Public key id: {}", key_pair.public_key_id());
+//! println!("Private key id: {}", key_pair.private_key_id());
 //! ```
 //!
 //! # Signing data
 //!
-//! Given some data and a key, the data can be signed with the key.
+//! Using a [`KeyPair`] the HSM can be requested to generate a signature
+//! for a given sequence of bytes.
 //!
-//! ```ignore
-//! let sig = key_pair.sign_raw(b"Hello, World!").unwrap();
-//! println!("{:?}", sig);
+//! ```no_run
+//! # use domain_kmip::dep::domain::base::iana::SecurityAlgorithm;
+//! # use domain_kmip::dep::domain::crypto::sign::GenerateParams;
+//! # use domain_kmip::dep::kmip_protocol::net::ConnectionSettings;
+//! # use domain_kmip::dep::kmip_protocol::net::sync_pool::ConnPool;
+//! # use domain_kmip::{generate, KeyPair};
+//! #
+//! # // Create a connection pool.
+//! # let mut conn_settings = ConnectionSettings::default();
+//! # conn_settings.host = "localhost".to_string();
+//! # let hsm_conn_pool = ConnPool::new(
+//! #     "myhsm".to_string(),
+//! #     conn_settings.into(),
+//! #     0, None, None).unwrap();
+//! #
+//! # // And then sign data using the key.
+//! # let key_pair = generate(
+//! #     "pub key name",
+//! #     "pri key name",
+//! #     GenerateParams::EcdsaP256Sha256,
+//! #     257,
+//! #     hsm_conn_pool).unwrap();
+//! // Bring the SignRaw trait into scope.
+//! use domain_kmip::dep::domain::crypto::sign::SignRaw;
+//!
+//! // Sign via the trait function `sign_raw()`.
+//! let signature = key_pair.sign_raw(b"Bytes to sign").unwrap();
 //! ```
 //!
-//! # Additional operations
+//! # Deleting HSM keys
 //!
-//! In addition to the operations supported by [`domain::crypto::sign`], KMIP
-//! keys support some additional operations. See [`KeyPair`] for more
-//! information.
-//!
+//! KMIP keys can also be deleted from the HSM. The [`destroy()`] function
+//! handles both the KMIP "Revoke" and "Destroy" operations.
+//! ```no_run
+//! # use domain_kmip::dep::domain::base::iana::SecurityAlgorithm;
+//! # use domain_kmip::dep::domain::crypto::sign::GenerateParams;
+//! # use domain_kmip::dep::kmip_protocol::net::ConnectionSettings;
+//! # use domain_kmip::dep::kmip_protocol::net::sync_pool::ConnPool;
+//! # use domain_kmip::{generate, KeyPair};
+//! #
+//! # // Create a connection pool.
+//! # let mut conn_settings = ConnectionSettings::default();
+//! # conn_settings.host = "localhost".to_string();
+//! # let hsm_conn_pool = ConnPool::new(
+//! #     "myhsm".to_string(),
+//! #     conn_settings.into(),
+//! #     1, None, None).unwrap();
+//! #
+//! # // And then sign data using the key.
+//! # let key_pair = generate(
+//! #     "pub key name",
+//! #     "pri key name",
+//! #     GenerateParams::EcdsaP256Sha256,
+//! #     257,
+//! #     hsm_conn_pool.clone()).unwrap();
+//! use domain_kmip::destroy;
+//! destroy("key id", hsm_conn_pool).unwrap();
+//! ```
 mod algorithms;
 mod error;
 mod key_pair;
@@ -96,7 +191,7 @@ pub use key_pair::{KeyPair, SignQueue};
 pub use key_url::KeyUrl;
 pub use public_key::PublicKey;
 
-/// Dependency re-exports
+/// Dependency re-exports.
 pub mod dep {
     pub use domain;
     pub use kmip_protocol;
@@ -123,7 +218,7 @@ use crate::error::GenerateError;
 
 //----------- generate() -------------------------------------------------
 
-/// Generate a new key pair for a given algorithm using a specified HSM.
+/// Generate a new KMIP key pair for a given algorithm using a specified HSM.
 pub fn generate<PUB: ToString, PRI: ToString>(
     public_key_name: PUB,
     private_key_name: PRI,
@@ -344,7 +439,7 @@ pub fn generate<PUB: ToString, PRI: ToString>(
 
 //----------- destroy() --------------------------------------------------
 
-/// Destroy a KMIP key by ID using a given KMIP server connection pool.
+/// Destroy a KMIP key by ID using a specified HSM.
 ///
 /// As a KMIP key cannot be destroyed if it is active, this function first
 /// attempts to revoke the key and then destroy it.
