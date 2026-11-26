@@ -21,10 +21,13 @@ Released 2026-11-25.
 ### Breaking changes
 
 - Remove `DestroyError` as it loses critical information. ([#10] by @ximon18)
+- Restrict the oids module to crate private. ([#15] by @ximon18)
 
 ### Bug fixes
 
 - Handle RSA key material from Fortanix DSM HSMs correctly. ([#9] by @ximon18)
+- Handle raw ECDSA response in X.509 format, even if not expected for a
+  symmetric key. ([#18] by @ximon18)
 
 ### Other changes
 
@@ -41,6 +44,8 @@ Released 2026-11-25.
 [#10]: https://github.com/NLnetLabs/domain-kmip/pull/10
 [#12]: https://github.com/NLnetLabs/domain-kmip/pull/12
 [#13]: https://github.com/NLnetLabs/domain-kmip/pull/13
+[#15]: https://github.com/NLnetLabs/domain-kmip/pull/15
+[#18]: https://github.com/NLnetLabs/domain-kmip/pull/18
 
 
 ## 0.1.0
